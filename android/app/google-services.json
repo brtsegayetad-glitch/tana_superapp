@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "634286378312",
+    "project_id": "tana-superapp-bd",
+    "storage_bucket": "tana-superapp-bd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:634286378312:android:8a4f3f92d92f4f945cb77d",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAE6Wea6XRnqOFq_VsbnLi29N-iD05Sxd0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
