@@ -18,5 +18,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: tana-bajaj-app
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: tana-bajaj-debug-apk
+          # We use a wildcard (*) so it finds ANY apk in that folder
+          path: build/app/outputs/flutter-apk/*.apk
