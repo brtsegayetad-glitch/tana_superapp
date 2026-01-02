@@ -2,15 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // <--- ADD THIS LINE
+import 'firebase_options.dart';
+import 'driver_route_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // By adding 'options' here, you use the import on line 5
-  // and the warning will disappear!
+  // Initializes Firebase with your specific Bahir Dar project settings
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
   runApp(const TanaSuperApp());
 }
 
@@ -26,7 +24,23 @@ class TanaSuperApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      home: const AuthScreen(),
+      // THE GATEKEEPER: This decides which page to show on start
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          // While checking the cloud...
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+                body: Center(child: CircularProgressIndicator()));
+          }
+          // If a user is found in memory, go to Home
+          if (snapshot.hasData) {
+            return const HomeScreen();
+          }
+          // Otherwise, go to Login
+          return const AuthScreen();
+        },
+      ),
     );
   }
 }
@@ -39,41 +53,33 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  bool isLogin = true; // This tracks if we are on Login or Signup page
+  bool isLogin = true;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  // This function talks to your Firebase project
   Future<void> _handleAuth() async {
     try {
       if (isLogin) {
-        // Log in existing user
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
         print("User Logged In!");
       } else {
-        // Create NEW user in Firebase Console
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
         print("New User Created in Bahir Dar!");
       }
-
-      // NAVIGATION LOGIC: This moves the user to the HomeScreen after success
+      // Note: We no longer need Navigator.push here because
+      // the StreamBuilder in TanaSuperApp will notice the change automatically!
+    } catch (e) {
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
         );
       }
-    } catch (e) {
-      // Shows error if password is too short or email is wrong
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -81,7 +87,6 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SingleChildScrollView(
-        // Keeps the yellow stripes away!
         child: Padding(
           padding: const EdgeInsets.all(30.0),
           child: Column(
@@ -91,26 +96,21 @@ class _AuthScreenState extends State<AuthScreen> {
               Text(
                 isLogin ? "TANA LOGIN" : "TANA SIGNUP",
                 style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.teal,
-                ),
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.teal),
               ),
               const SizedBox(height: 30),
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(
-                  labelText: "Email",
-                  border: OutlineInputBorder(),
-                ),
+                    labelText: "Email", border: OutlineInputBorder()),
               ),
               const SizedBox(height: 15),
               TextField(
                 controller: _passwordController,
                 decoration: const InputDecoration(
-                  labelText: "Password",
-                  border: OutlineInputBorder(),
-                ),
+                    labelText: "Password", border: OutlineInputBorder()),
                 obscureText: true,
               ),
               const SizedBox(height: 25),
@@ -120,16 +120,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   minimumSize: const Size(double.infinity, 50),
                 ),
                 onPressed: _handleAuth,
-                child: Text(
-                  isLogin ? "LOGIN" : "CREATE ACCOUNT",
-                  style: const TextStyle(color: Colors.white),
-                ),
+                child: Text(isLogin ? "LOGIN" : "CREATE ACCOUNT",
+                    style: const TextStyle(color: Colors.white)),
               ),
               TextButton(
                 onPressed: () => setState(() => isLogin = !isLogin),
-                child: Text(
-                  isLogin ? "Don't have an account? Sign Up" : "Back to Login",
-                ),
+                child: Text(isLogin
+                    ? "Don't have an account? Sign Up"
+                    : "Back to Login"),
               ),
             ],
           ),
@@ -138,7 +136,6 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 }
-// --- NEW HOME SCREEN CODE STARTS HERE ---
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -150,29 +147,26 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // These are the different modules of your Tana SuperApp
   final List<Widget> _pages = [
     const Center(child: Text("Hullugebeya Marketplace Coming Soon")),
-    const Center(child: Text("Tana Bajaj Tracking Coming Soon")),
-    const Center(child: Text("Your Bahir Dar Profile")),
+    const DriverRoutePage(),
+    const ProfilePage(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          "Tana SuperApp",
-          style: TextStyle(color: Colors.white),
-        ),
+        title:
+            const Text("Tana SuperApp", style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.teal,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const AuthScreen()),
-            ),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              // StreamBuilder handles the move back to AuthScreen!
+            },
           ),
         ],
       ),
@@ -191,52 +185,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// --- PLACEHOLDERS ---
-class MarketplacePage extends StatelessWidget {
-  const MarketplacePage({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Hullugebeya Market"),
-        backgroundColor: Colors.teal,
-      ),
-      body: const Center(child: Text("Welcome to Bahir Dar Marketplace")),
-    );
-  }
-}
-
-class BajajPage extends StatelessWidget {
-  const BajajPage({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Tana Bajaj"),
-        backgroundColor: Colors.teal,
-      ),
-      body: const Center(child: Text("Bajaj Real-time Tracking")),
-    );
-  }
-}
-
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Profile"),
-        backgroundColor: Colors.teal,
-      ),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: () => Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const AuthScreen()),
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.person, size: 100, color: Colors.teal),
+          const Text("Your Bahir Dar Profile", style: TextStyle(fontSize: 20)),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () async => await FirebaseAuth.instance.signOut(),
+            child: const Text("Logout"),
           ),
-          child: const Text("Logout"),
-        ),
+        ],
       ),
     );
   }

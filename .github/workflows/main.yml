@@ -1,0 +1,22 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ] # Or 'master' depending on your branch name
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build apk --split-per-abi # Creates the installer
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: tana-bajaj-app
+          path: build/app/outputs/flutter-apk/app-release.apk
