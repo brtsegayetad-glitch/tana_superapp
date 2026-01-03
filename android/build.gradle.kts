@@ -5,7 +5,6 @@ allprojects {
     }
 }
 
-val rootBuildDir = buildDir
 val newBuildDir = file("../build")
 
 subprojects {
