@@ -21,8 +21,11 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    // Change 8.1.0 to 8.1.1 below:
     id("com.android.application") version "8.1.1" apply false 
     id("org.jetbrains.kotlin.android") version "1.8.22" apply false
     id("com.google.gms.google-services") version "4.3.15" apply false 
 }
+
+// THIS PART IS CRITICAL: It tells Firebase/Firestore where your app is
+include(":app")
+project(":app").projectDir = file("app")

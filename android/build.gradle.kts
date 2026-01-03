@@ -6,13 +6,20 @@ allprojects {
 }
 
 val newBuildDir = file("../build")
+rootProject.buildDir = newBuildDir
 
 subprojects {
-    project.buildDir = file("$newBuildDir/${project.name}")
+    val newSubBuildDir = file("${newBuildDir}/${project.name}")
+    project.buildDir = newSubBuildDir
 }
 
 subprojects {
-    project.evaluationDependsOn(":app")
+    // This line is important for Firestore/Firebase
+    afterEvaluate {
+        if (project.hasProperty("android")) {
+            project.evaluationDependsOn(":app")
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {
