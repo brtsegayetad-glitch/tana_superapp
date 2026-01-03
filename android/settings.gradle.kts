@@ -26,6 +26,4 @@ plugins {
     id("com.google.gms.google-services") version "4.3.15" apply false 
 }
 
-// THIS PART IS CRITICAL: It tells Firebase/Firestore where your app is
 include(":app")
-project(":app").projectDir = file("app")
