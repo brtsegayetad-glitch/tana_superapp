@@ -36,6 +36,10 @@ flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
   image_path: "assets/images/app_logo.png"
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "assets/images/app_logo.png"
+  # Try a negative number to "Zoom In"
+  adaptive_icon_foreground_inset: -20 
   min_sdk_android: 21
 
 flutter_native_splash:
