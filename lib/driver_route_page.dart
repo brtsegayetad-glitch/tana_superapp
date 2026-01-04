@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'admin_panel.dart'; 
-import 'registration_page.dart'; 
+import 'package:intl/intl.dart'; // Ensure you ran 'flutter pub add intl'
+import 'admin_panel.dart';
+import 'registration_page.dart';
 
 class DriverRoutePage extends StatefulWidget {
   const DriverRoutePage({super.key});
@@ -19,6 +20,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   String bajajName = "Loading...";
   String plateNumber = "---";
   bool isLoading = true;
+  Timestamp? lastPaymentDate;
 
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _transactionController = TextEditingController();
@@ -35,7 +37,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   Future<void> _loadWalletData() async {
     try {
-      var doc = await walletRef.get();
+      // Force a fresh fetch from server for Web Preview reliability
+      var doc = await walletRef.get(const GetOptions(source: Source.server));
       if (!mounted) return;
 
       if (!doc.exists || (doc.data() as Map<String, dynamic>)['plateNumber'] == "---") {
@@ -49,6 +52,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           isRoutePaid = data['isRoutePaid'] ?? false;
           bajajName = data['bajajName'] ?? "Unnamed Bajaj";
           plateNumber = data['plateNumber'] ?? "---";
+          lastPaymentDate = data['lastPaymentDate'] as Timestamp?;
         });
       }
     } catch (e) {
@@ -58,16 +62,68 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     }
   }
 
+  double calculateTotalDue() {
+    // If already paid, they owe nothing for now
+    if (isRoutePaid) return 0.0;
+    
+    // If they have never paid, they owe the base fee
+    if (lastPaymentDate == null) return baseFee;
+
+    DateTime lastPay = lastPaymentDate!.toDate();
+    DateTime now = DateTime.now();
+    int daysSinceLastPay = now.difference(lastPay).inDays;
+
+    // Within the 7-day grace period
+    if (daysSinceLastPay <= 7) return baseFee;
+
+    // LATE LOGIC (e.g., 20 days late)
+    int missedWeeks = (daysSinceLastPay / 7).floor();
+    double arrears = missedWeeks * baseFee;
+    double penalty = daysSinceLastPay * (baseFee * penaltyRate);
+
+    return arrears + penalty;
+  }
+
+  void payRoute() async {
+    double total = calculateTotalDue();
+    var doc = await walletRef.get();
+    double currentBalance = (doc['balance'] ?? 0.0).toDouble();
+    String assocName = (doc.data() as Map<String, dynamic>)['association'] ?? 'General';
+
+    if (currentBalance >= total) {
+      setState(() => isLoading = true);
+      final batch = FirebaseFirestore.instance.batch();
+
+      batch.update(walletRef, {
+        'balance': FieldValue.increment(-total),
+        'isRoutePaid': true,
+        'lastPaymentDate': FieldValue.serverTimestamp(), // Update to today
+      });
+
+      batch.set(FirebaseFirestore.instance.collection('transactions').doc(), {
+        'uid': uid,
+        'amount': total,
+        'type': 'payment',
+        'title': 'Weekly Route Fee',
+        'association': assocName,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+      await _loadWalletData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient Balance!")));
+    }
+  }
+
+  // --- SUBMIT DEPOSIT ---
   void submitDepositRequest() async {
     String amountText = _amountController.text.trim();
     String txId = _transactionController.text.trim();
 
     if (amountText.isNotEmpty && txId.isNotEmpty) {
       double? amount = double.tryParse(amountText);
-      if (amount == null || amount <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a valid number")));
-        return;
-      }
+      if (amount == null || amount <= 0) return;
 
       setState(() => isLoading = true);
       try {
@@ -79,71 +135,12 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           'status': 'pending',
           'timestamp': FieldValue.serverTimestamp(),
         });
-
         _amountController.clear();
         _transactionController.clear();
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Request Sent! Admin will verify payment.")),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent!")));
       } finally {
         if (mounted) setState(() => isLoading = false);
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill in both Amount and Transaction ID")),
-      );
-    }
-  }
-
-  double calculateTotalDue() {
-    DateTime now = DateTime.now();
-    int daysSinceMonday = now.weekday - DateTime.monday;
-    if (daysSinceMonday < 0) daysSinceMonday += 7;
-    DateTime lastMonday = DateTime(now.year, now.month, now.day - daysSinceMonday, 8, 0);
-
-    if (now.isAfter(lastMonday)) {
-      int daysLate = now.difference(lastMonday).inDays;
-      if (daysLate > 0) return baseFee + (baseFee * penaltyRate * daysLate);
-    }
-    return baseFee;
-  }
-
-  // UPDATED: Now uses Batch to update balance AND log transaction history
-  void payRoute() async {
-    double total = calculateTotalDue();
-    var doc = await walletRef.get();
-    double currentBalance = (doc['balance'] ?? 0.0).toDouble();
-
-    if (currentBalance >= total) {
-      setState(() => isLoading = true);
-      
-      final batch = FirebaseFirestore.instance.batch();
-
-      // 1. Update Balance
-      batch.update(walletRef, {
-        'balance': FieldValue.increment(-total),
-        'isRoutePaid': true,
-        'lastPaymentDate': Timestamp.now(),
-      });
-
-      // 2. Add History Log
-      DocumentReference historyRef = FirebaseFirestore.instance.collection('transactions').doc();
-      batch.set(historyRef, {
-        'uid': uid,
-        'amount': total,
-        'type': 'payment',
-        'title': 'Weekly Route Fee',
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      await _loadWalletData();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient Balance!")));
     }
   }
 
@@ -152,7 +149,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.teal)));
 
     double totalToPay = calculateTotalDue();
-    bool isLate = DateTime.now().weekday > DateTime.monday && !isRoutePaid;
+    bool isLate = lastPaymentDate != null && DateTime.now().difference(lastPaymentDate!.toDate()).inDays > 7;
 
     return Scaffold(
       appBar: AppBar(title: const Text("Tana Bajaj - Wallet")),
@@ -161,6 +158,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           padding: const EdgeInsets.all(20.0),
           child: Column(
             children: [
+              // Wallet Card
               Card(
                 elevation: 4,
                 color: Colors.teal.shade50,
@@ -180,18 +178,14 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                         },
                       ),
                       const Divider(),
-                      const Text("Step 1: Send money to 0918-XX-XX-XX (Telebirr)",
-                          style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      const SizedBox(height: 10),
                       TextField(
                         controller: _amountController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: "Amount Sent (Birr)", border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: "Amount Sent (Birr)"),
                       ),
-                      const SizedBox(height: 10),
                       TextField(
                         controller: _transactionController,
-                        decoration: const InputDecoration(labelText: "Transaction ID (from SMS)", border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: "Transaction ID"),
                       ),
                       const SizedBox(height: 10),
                       ElevatedButton(
@@ -204,6 +198,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                 ),
               ),
               const SizedBox(height: 20),
+              // Status Container
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -216,7 +211,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                   children: [
                     Text(isRoutePaid ? "PERMIT ACTIVE" : "PAYMENT REQUIRED",
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
                     if (!isRoutePaid)
                       Text("Total Due: $totalToPay Birr", style: const TextStyle(fontSize: 18, color: Colors.red)),
                   ],
@@ -236,56 +230,30 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                   label: const Text("SHOW TRAFFIC PERMIT"),
                   style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                 ),
-              
               const SizedBox(height: 30),
-              
-              // NEW: TRANSACTION HISTORY LIST
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
+              // Transaction History List...
+              const Align(alignment: Alignment.centerLeft, child: Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
               const Divider(),
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('transactions')
-                    .where('uid', isEqualTo: uid)
-                    .orderBy('timestamp', descending: true)
-                    .limit(5)
-                    .snapshots(),
+                stream: FirebaseFirestore.instance.collection('transactions').where('uid', isEqualTo: uid).orderBy('timestamp', descending: true).limit(5).snapshots(),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) return const CircularProgressIndicator();
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Text("No transactions yet.", style: TextStyle(color: Colors.grey));
-                  }
+                  if (!snapshot.hasData) return const CircularProgressIndicator();
                   return ListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: snapshot.data!.docs.length,
                     itemBuilder: (context, index) {
                       var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                      bool isDeposit = data['type'] == 'deposit';
                       return ListTile(
-                        leading: Icon(isDeposit ? Icons.arrow_downward : Icons.arrow_upward, 
-                                     color: isDeposit ? Colors.green : Colors.red),
                         title: Text(data['title'] ?? "Transaction"),
-                        subtitle: Text(data['timestamp']?.toDate().toString().split('.')[0] ?? ""),
-                        trailing: Text(
-                          "${isDeposit ? '+' : '-'}${data['amount']} ETB",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: isDeposit ? Colors.green : Colors.red),
-                        ),
+                        trailing: Text("${data['amount']} ETB"),
                       );
                     },
                   );
                 },
               ),
-
-              const SizedBox(height: 50),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminPanelPage()));
-                },
-                child: const Text("ADMIN ACCESS", style: TextStyle(color: Colors.grey, fontSize: 10)),
-              ),
+              TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminPanelPage())),
+                child: const Text("ADMIN ACCESS", style: TextStyle(color: Colors.grey, fontSize: 10))),
             ],
           ),
         ),
@@ -293,7 +261,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     );
   }
 
-  // ... (Keeping receipt logic exactly as you had it)
   void _showTrafficReceipt(BuildContext context, double paid) {
     showModalBottomSheet(
       context: context,
@@ -310,7 +277,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
               const Divider(height: 40),
               _receiptRow("Bajaj Name:", bajajName),
               _receiptRow("Plate Number:", plateNumber),
-              _receiptRow("Weekly Fee:", "$paid Birr"),
+              // ADDED THE DATE HERE:
+              _receiptRow("Payment Date:", lastPaymentDate != null ? DateFormat('MMM d, yyyy').format(lastPaymentDate!.toDate()) : "Today"),
               _receiptRow("Status:", "PAID ✅"),
               const SizedBox(height: 40),
               const Icon(Icons.qr_code_2, size: 200),
