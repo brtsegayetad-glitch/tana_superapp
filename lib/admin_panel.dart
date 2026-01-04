@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart'; 
-import 'package:intl/intl.dart'; // This will NO LONGER be red or unused!
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 class AdminPanelPage extends StatefulWidget {
   const AdminPanelPage({super.key});
@@ -10,14 +10,21 @@ class AdminPanelPage extends StatefulWidget {
   State<AdminPanelPage> createState() => _AdminPanelPageState();
 }
 
-class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProviderStateMixin {
+class _AdminPanelPageState extends State<AdminPanelPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final double myCommissionPercent = 0.05; 
+  final double myCommissionPercent = 0.05;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
@@ -33,7 +40,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
           indicatorColor: Colors.yellow,
           tabs: const [
             Tab(text: "Approvals", icon: Icon(Icons.pending_actions)),
-            Tab(text: "Manager Dashboard", icon: Icon(Icons.dashboard)),
+            Tab(text: "Dashboard", icon: Icon(Icons.dashboard)),
           ],
         ),
       ),
@@ -54,23 +61,30 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
         var docs = snapshot.data!.docs;
-        if (docs.isEmpty) return const Center(child: Text("No pending deposits."));
+        if (docs.isEmpty) {
+          return const Center(child: Text("No pending deposits."));
+        }
 
         return ListView.builder(
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            var data = docs[index].data() as Map<String, dynamic>;
+            var doc = docs[index];
+            var data = doc.data() as Map<String, dynamic>;
             return Card(
               margin: const EdgeInsets.all(10),
               child: ListTile(
                 title: Text("${data['driverName']} - ${data['amount']} ETB"),
                 subtitle: Text("TXID: ${data['transactionId']}"),
                 trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  onPressed: () => _approveDeposit(docs[index].id, data),
-                  child: const Text("APPROVE", style: TextStyle(color: Colors.white)),
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  onPressed: () => _approveDeposit(doc.id, data),
+                  child: const Text("APPROVE",
+                      style: TextStyle(color: Colors.white)),
                 ),
               ),
             );
@@ -81,36 +95,62 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
   }
 
   Widget _buildDashboardTab() {
+    DateTime now = DateTime.now();
+    DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
+    String dateRange =
+        "${DateFormat('MMM d').format(sevenDaysAgo)} - ${DateFormat('MMM d, yyyy').format(now)}";
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('transactions')
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
         Map<String, Map<String, dynamic>> associationStats = {};
 
         for (var doc in snapshot.data!.docs) {
           var data = doc.data() as Map<String, dynamic>;
-          if (data['type'] == 'payment') {
-            String assoc = data['association'] ?? 'General';
-            double amt = (data['amount'] ?? 0.0).toDouble();
+          Timestamp? ts = data['timestamp'] as Timestamp?;
 
-            if (!associationStats.containsKey(assoc)) {
-              associationStats[assoc] = {'total': 0.0, 'count': 0};
+          if (ts != null) {
+            DateTime txDate = ts.toDate();
+            if (data['type'] == 'payment' && txDate.isAfter(sevenDaysAgo)) {
+              String assoc = data['association'] ?? 'General';
+              double amt = (data['amount'] ?? 0.0).toDouble();
+
+              if (!associationStats.containsKey(assoc)) {
+                associationStats[assoc] = {'total': 0.0, 'count': 0};
+              }
+              associationStats[assoc]!['total'] += amt;
+              associationStats[assoc]!['count'] += 1;
             }
-            associationStats[assoc]!['total'] += amt;
-            associationStats[assoc]!['count'] += 1;
           }
         }
 
         return ListView(
           padding: const EdgeInsets.all(15),
           children: [
-            const Text("Association Summaries", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            if (associationStats.isEmpty) const Text("No payments collected yet."),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Weekly Report",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(dateRange,
+                      style: const TextStyle(
+                          color: Colors.teal, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 15),
             ...associationStats.entries.map((e) {
               double total = e.value['total'];
               int count = e.value['count'];
@@ -127,51 +167,74 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(e.key, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal)),
-                          Chip(label: Text("$count Paid")),
+                          Text(e.key,
+                              style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.teal)),
+                          Chip(label: Text("$count Bajajs Paid")),
                         ],
                       ),
                       const Divider(),
-                      _dashboardRow("Total Collected:", "${total.toStringAsFixed(2)} ETB"),
-                      _dashboardRow("Your 5% Fee:", "${commission.toStringAsFixed(2)} ETB", color: Colors.blue),
-                      _dashboardRow("Net to Association:", "${netToAssoc.toStringAsFixed(2)} ETB", color: Colors.green, isBold: true),
+                      _dashboardRow("Gross Collected:",
+                          "${total.toStringAsFixed(2)} ETB"),
+                      _dashboardRow("Hullugebeya Fee (5%):",
+                          "${commission.toStringAsFixed(2)} ETB",
+                          color: Colors.blue),
+                      _dashboardRow("Pay to Association:",
+                          "${netToAssoc.toStringAsFixed(2)} ETB",
+                          color: Colors.green, isBold: true),
                       const SizedBox(height: 10),
-                      TextButton.icon(
+                      ElevatedButton.icon(
                         onPressed: () {
-                          // USE DATEFORMAT HERE to remove the warning
-                          String dateStr = DateFormat('MMM dd, yyyy').format(DateTime.now());
-                          String report = "📊 Hullugebeya Report: ${e.key}\n📅 Date: $dateStr\n💰 Total: $total ETB\n🏦 Net Payout: $netToAssoc ETB";
+                          String report = "📊 *Hullugebeya Weekly Report*\n"
+                              "🏢 Assoc: ${e.key}\n"
+                              "📅 Period: $dateRange\n"
+                              "✅ Drivers: $count\n"
+                              "💰 Total: ${total.toStringAsFixed(2)} ETB\n"
+                              "🏦 Payout: ${netToAssoc.toStringAsFixed(2)} ETB";
                           Clipboard.setData(ClipboardData(text: report));
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Report Copied!")));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text("Weekly Report Copied!")));
                         },
-                        icon: const Icon(Icons.copy),
-                        label: const Text("COPY REPORT FOR TELEGRAM"),
+                        icon: const Icon(Icons.copy, size: 14),
+                        label: const Text("COPY WEEKLY REPORT"),
+                        style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 35)),
                       )
                     ],
                   ),
                 ),
               );
-            }).toList(),
+            }),
             const Divider(height: 40),
-            const Text("Detailed History Log", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text("Recent History",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: snapshot.data!.docs.length,
+              itemCount: snapshot.data!.docs.length > 20
+                  ? 20
+                  : snapshot.data!.docs.length,
               itemBuilder: (context, index) {
-                var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                bool isDeposit = data['type'] == 'deposit';
-                
-                // USE DATEFORMAT HERE ALSO to make history look better
+                var doc = snapshot.data!.docs[index];
+                var data = doc.data() as Map<String, dynamic>;
                 DateTime? date = (data['timestamp'] as Timestamp?)?.toDate();
-                String formattedDate = date != null ? DateFormat('MMM d, h:mm a').format(date) : "Recent";
+                String formattedDate = date != null
+                    ? DateFormat('MMM d, h:mm a').format(date)
+                    : "Recent";
 
                 return ListTile(
-                  leading: Icon(isDeposit ? Icons.add_circle : Icons.payment, color: isDeposit ? Colors.green : Colors.red),
-                  title: Text(data['title'] ?? "Payment"),
-                  subtitle: Text("$formattedDate - ${data['association']}"),
-                  trailing: Text("${data['amount']} ETB"),
+                  leading: const CircleAvatar(
+                      backgroundColor: Colors.teal,
+                      child: Icon(Icons.person, color: Colors.white)),
+                  title: Text(data['driverName'] ?? "Driver"),
+                  subtitle: Text(
+                      "$formattedDate\nTXID: ${data['transactionId'] ?? 'N/A'}"),
+                  trailing: Text("${data['amount']} ETB",
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
                 );
               },
             ),
@@ -181,14 +244,18 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
     );
   }
 
-  Widget _dashboardRow(String label, String value, {Color? color, bool isBold = false}) {
+  Widget _dashboardRow(String label, String value,
+      {Color? color, bool isBold = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: color)),
+          Text(value,
+              style: TextStyle(
+                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  color: color)),
         ],
       ),
     );
@@ -198,13 +265,28 @@ class _AdminPanelPageState extends State<AdminPanelPage> with SingleTickerProvid
     final batch = FirebaseFirestore.instance.batch();
     String driverId = data['uid'];
     double amount = (data['amount'] ?? 0.0).toDouble();
-    var walletDoc = await FirebaseFirestore.instance.collection('wallets').doc(driverId).get();
-    String assoc = (walletDoc.data() as Map<String, dynamic>)['association'] ?? 'General';
 
-    batch.update(FirebaseFirestore.instance.collection('wallets').doc(driverId), {'balance': FieldValue.increment(amount)});
-    batch.update(FirebaseFirestore.instance.collection('deposit_requests').doc(reqId), {'status': 'approved'});
+    var walletDoc = await FirebaseFirestore.instance
+        .collection('wallets')
+        .doc(driverId)
+        .get();
+    String assoc = walletDoc.exists
+        ? (walletDoc.data() as Map<String, dynamic>)['association'] ?? 'General'
+        : 'General';
+
+    batch.update(FirebaseFirestore.instance.collection('wallets').doc(driverId),
+        {'balance': FieldValue.increment(amount)});
+    batch.update(
+        FirebaseFirestore.instance.collection('deposit_requests').doc(reqId),
+        {'status': 'approved'});
     batch.set(FirebaseFirestore.instance.collection('transactions').doc(), {
-      'uid': driverId, 'amount': amount, 'type': 'deposit', 'title': 'Wallet Top-up', 'association': assoc, 'timestamp': FieldValue.serverTimestamp(),
+      'uid': driverId,
+      'driverName': data['driverName'],
+      'amount': amount,
+      'type': 'deposit',
+      'title': 'Wallet Top-up',
+      'association': assoc,
+      'timestamp': FieldValue.serverTimestamp(),
     });
     await batch.commit();
   }

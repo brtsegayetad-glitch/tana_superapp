@@ -1,9 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart'; // Ensure you ran 'flutter pub add intl'
+import 'package:intl/intl.dart';
 import 'admin_panel.dart';
 import 'registration_page.dart';
+
+// 1. The Dictionary stays outside the class
+final Map<String, Map<String, String>> localizedText = {
+  'en': {
+    'title': 'Tana Wallet',
+    'balance': 'Balance',
+    'step1': 'STEP 1: SEND TELEBIRR',
+    'step2': 'STEP 2: ENTER DETAILS',
+    'amount': 'Amount Sent (Birr)',
+    'txid': 'Transaction ID (TXID)',
+    'submit': 'SUBMIT FOR APPROVAL',
+    'permit': 'PERMIT ACTIVE',
+    'pay_req': 'PAYMENT REQUIRED',
+    'due': 'Total Due',
+    'history': 'Recent Activity',
+    'pay_btn': 'PAY',
+    'receipt_btn': 'SHOW TRAFFIC PERMIT',
+  },
+  'am': {
+    'title': 'ታና ዋሌት',
+    'balance': 'ሒሳብ',
+    'step1': 'ደረጃ 1፡ በቴሌብር ይላኩ',
+    'step2': 'ደረጃ 2፡ ዝርዝር መረጃ ያስገቡ',
+    'amount': 'የተላከው ብር (በብር)',
+    'txid': 'የመለያ ቁጥር (TXID)',
+    'submit': 'ለማረጋገጥ ይላኩ',
+    'permit': 'ፈቃድ ገቢ ሆኗል',
+    'pay_req': 'ክፍያ ይጠበቅብዎታል',
+    'due': 'ጠቅላላ ዕዳ',
+    'history': 'የቅርብ ጊዜ እንቅስቃሴዎች',
+    'pay_btn': 'ክፍያ ፈጽም',
+    'receipt_btn': 'የመንገድ ፈቃድ አሳይ',
+  }
+};
 
 class DriverRoutePage extends StatefulWidget {
   const DriverRoutePage({super.key});
@@ -13,6 +47,9 @@ class DriverRoutePage extends StatefulWidget {
 }
 
 class _DriverRoutePageState extends State<DriverRoutePage> {
+  // 2. The language variable is now inside the state (FIXES DUPLICATE ERROR)
+  String lang = 'am';
+
   final String uid = FirebaseAuth.instance.currentUser!.uid;
   late DocumentReference walletRef;
 
@@ -37,11 +74,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   Future<void> _loadWalletData() async {
     try {
-      // Force a fresh fetch from server for Web Preview reliability
       var doc = await walletRef.get(const GetOptions(source: Source.server));
       if (!mounted) return;
 
-      if (!doc.exists || (doc.data() as Map<String, dynamic>)['plateNumber'] == "---") {
+      if (!doc.exists ||
+          (doc.data() as Map<String, dynamic>)['plateNumber'] == "---") {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const RegistrationPage()),
@@ -63,20 +100,15 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   }
 
   double calculateTotalDue() {
-    // If already paid, they owe nothing for now
     if (isRoutePaid) return 0.0;
-    
-    // If they have never paid, they owe the base fee
     if (lastPaymentDate == null) return baseFee;
 
     DateTime lastPay = lastPaymentDate!.toDate();
     DateTime now = DateTime.now();
     int daysSinceLastPay = now.difference(lastPay).inDays;
 
-    // Within the 7-day grace period
     if (daysSinceLastPay <= 7) return baseFee;
 
-    // LATE LOGIC (e.g., 20 days late)
     int missedWeeks = (daysSinceLastPay / 7).floor();
     double arrears = missedWeeks * baseFee;
     double penalty = daysSinceLastPay * (baseFee * penaltyRate);
@@ -88,7 +120,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     double total = calculateTotalDue();
     var doc = await walletRef.get();
     double currentBalance = (doc['balance'] ?? 0.0).toDouble();
-    String assocName = (doc.data() as Map<String, dynamic>)['association'] ?? 'General';
+    String assocName =
+        (doc.data() as Map<String, dynamic>)['association'] ?? 'General';
 
     if (currentBalance >= total) {
       setState(() => isLoading = true);
@@ -97,7 +130,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       batch.update(walletRef, {
         'balance': FieldValue.increment(-total),
         'isRoutePaid': true,
-        'lastPaymentDate': FieldValue.serverTimestamp(), // Update to today
+        'lastPaymentDate': FieldValue.serverTimestamp(),
       });
 
       batch.set(FirebaseFirestore.instance.collection('transactions').doc(), {
@@ -110,13 +143,15 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       });
 
       await batch.commit();
+      if (!mounted) return;
       await _loadWalletData();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient Balance!")));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Insufficient Balance!")));
     }
   }
 
-  // --- SUBMIT DEPOSIT ---
   void submitDepositRequest() async {
     String amountText = _amountController.text.trim();
     String txId = _transactionController.text.trim();
@@ -137,7 +172,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         });
         _amountController.clear();
         _transactionController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent!")));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("Request Sent!")));
       } finally {
         if (mounted) setState(() => isLoading = false);
       }
@@ -146,19 +183,41 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.teal)));
+    if (isLoading) {
+      return const Scaffold(
+          body: Center(child: CircularProgressIndicator(color: Colors.teal)));
+    }
 
     double totalToPay = calculateTotalDue();
-    bool isLate = lastPaymentDate != null && DateTime.now().difference(lastPaymentDate!.toDate()).inDays > 7;
+    bool isLate = lastPaymentDate != null &&
+        DateTime.now().difference(lastPaymentDate!.toDate()).inDays > 7;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Tana Bajaj - Wallet")),
+      // 3. UPDATED APPBAR WITH LANGUAGE TOGGLE
+      appBar: AppBar(
+        title: Text(localizedText[lang]!['title']!),
+        backgroundColor: Colors.teal[800],
+        foregroundColor: Colors.white,
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() {
+                lang = (lang == 'en') ? 'am' : 'en';
+              });
+            },
+            child: Text(
+              lang == 'en' ? "አማርኛ" : "English",
+              style: const TextStyle(
+                  color: Colors.yellow, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
             children: [
-              // Wallet Card
               Card(
                 elevation: 4,
                 color: Colors.teal.shade50,
@@ -171,48 +230,109 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                         builder: (context, snapshot) {
                           double balance = 0.0;
                           if (snapshot.hasData && snapshot.data!.exists) {
-                            balance = (snapshot.data!['balance'] ?? 0.0).toDouble();
+                            balance =
+                                (snapshot.data!['balance'] ?? 0.0).toDouble();
                           }
-                          return Text("Balance: $balance Birr",
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal));
+                          return Text(
+                              "${localizedText[lang]!['balance']}: $balance ብር",
+                              style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.teal));
                         },
                       ),
                       const Divider(),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(localizedText[lang]!['step1']!,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.yellow.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade300),
+                        ),
+                        child: const Column(
+                          children: [
+                            Text("Pay to (Tana Wallet):",
+                                style: TextStyle(fontSize: 12)),
+                            SizedBox(height: 4),
+                            Text("0940651491",
+                                style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red,
+                                    letterSpacing: 1.5)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(localizedText[lang]!['step2']!,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
                       TextField(
                         controller: _amountController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: "Amount Sent (Birr)"),
+                        decoration: InputDecoration(
+                            labelText: localizedText[lang]!['amount'],
+                            prefixIcon: const Icon(Icons.money_outlined)),
                       ),
                       TextField(
                         controller: _transactionController,
-                        decoration: const InputDecoration(labelText: "Transaction ID"),
+                        decoration: InputDecoration(
+                            labelText: localizedText[lang]!['txid'],
+                            prefixIcon:
+                                const Icon(Icons.receipt_long_outlined)),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 15),
                       ElevatedButton(
                         onPressed: submitDepositRequest,
-                        style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 45)),
-                        child: const Text("SUBMIT DEPOSIT"),
+                        style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 45),
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.white),
+                        child: Text(localizedText[lang]!['submit']!),
                       ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-              // Status Container
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isRoutePaid ? Colors.green.shade100 : (isLate ? Colors.orange.shade100 : Colors.blue.shade100),
+                  color: isRoutePaid
+                      ? Colors.green.shade100
+                      : (isLate
+                          ? Colors.orange.shade100
+                          : Colors.blue.shade100),
                   borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: isRoutePaid ? Colors.green : (isLate ? Colors.orange : Colors.blue)),
+                  border: Border.all(
+                      color: isRoutePaid
+                          ? Colors.green
+                          : (isLate ? Colors.orange : Colors.blue)),
                 ),
                 child: Column(
                   children: [
-                    Text(isRoutePaid ? "PERMIT ACTIVE" : "PAYMENT REQUIRED",
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text(
+                        isRoutePaid
+                            ? localizedText[lang]!['permit']!
+                            : localizedText[lang]!['pay_req']!,
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold)),
                     if (!isRoutePaid)
-                      Text("Total Due: $totalToPay Birr", style: const TextStyle(fontSize: 18, color: Colors.red)),
+                      Text("${localizedText[lang]!['due']}: $totalToPay ብር",
+                          style:
+                              const TextStyle(fontSize: 18, color: Colors.red)),
                   ],
                 ),
               ),
@@ -220,40 +340,66 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
               if (!isRoutePaid)
                 ElevatedButton(
                   onPressed: payRoute,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 60)),
-                  child: Text("PAY $totalToPay BIRR"),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 60)),
+                  child:
+                      Text("${localizedText[lang]!['pay_btn']} $totalToPay ብር"),
                 ),
               if (isRoutePaid)
                 OutlinedButton.icon(
-                  onPressed: () => _showTrafficReceipt(context, totalToPay),
+                  onPressed: () => _showTrafficReceipt(context),
                   icon: const Icon(Icons.verified_user),
-                  label: const Text("SHOW TRAFFIC PERMIT"),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                  label: Text(localizedText[lang]!['receipt_btn']!),
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50)),
                 ),
               const SizedBox(height: 30),
-              // Transaction History List...
-              const Align(alignment: Alignment.centerLeft, child: Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(localizedText[lang]!['history']!,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold))),
               const Divider(),
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('transactions').where('uid', isEqualTo: uid).orderBy('timestamp', descending: true).limit(5).snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('transactions')
+                    .where('uid', isEqualTo: uid)
+                    .orderBy('timestamp', descending: true)
+                    .limit(5)
+                    .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const CircularProgressIndicator();
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  var docs = snapshot.data!.docs;
                   return ListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: snapshot.data!.docs.length,
+                    itemCount: docs.length,
                     itemBuilder: (context, index) {
-                      var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                      var data = docs[index].data() as Map<String, dynamic>;
                       return ListTile(
                         title: Text(data['title'] ?? "Transaction"),
+                        subtitle: Text(data['timestamp'] != null
+                            ? DateFormat('MMM d, h:mm a').format(
+                                (data['timestamp'] as Timestamp).toDate())
+                            : ""),
                         trailing: Text("${data['amount']} ETB"),
                       );
                     },
                   );
                 },
               ),
-              TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminPanelPage())),
-                child: const Text("ADMIN ACCESS", style: TextStyle(color: Colors.grey, fontSize: 10))),
+              TextButton(
+                onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const AdminPanelPage())),
+                child: const Text("ADMIN ACCESS",
+                    style: TextStyle(color: Colors.grey, fontSize: 10)),
+              ),
             ],
           ),
         ),
@@ -261,7 +407,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     );
   }
 
-  void _showTrafficReceipt(BuildContext context, double paid) {
+  void _showTrafficReceipt(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -271,19 +417,37 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 90),
-              const Text("BAHIR DAR CITY ADMINISTRATION", style: TextStyle(color: Colors.grey, fontSize: 12)),
-              const Text("VALID ROUTE PERMIT", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Icon(Icons.verified, color: Colors.teal, size: 90),
+              const Text("TANA SUPERAPP - DIGITAL RECEIPT",
+                  style: TextStyle(
+                      color: Colors.teal,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14)),
+              const Text("SERVICE ACCESS VERIFIED",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               const Divider(height: 40),
+              _receiptRow("Provider:", "Tana Digital Solutions"),
               _receiptRow("Bajaj Name:", bajajName),
               _receiptRow("Plate Number:", plateNumber),
-              // ADDED THE DATE HERE:
-              _receiptRow("Payment Date:", lastPaymentDate != null ? DateFormat('MMM d, yyyy').format(lastPaymentDate!.toDate()) : "Today"),
-              _receiptRow("Status:", "PAID ✅"),
+              _receiptRow(
+                  "Payment Date:",
+                  lastPaymentDate != null
+                      ? DateFormat('MMM d, yyyy')
+                          .format(lastPaymentDate!.toDate())
+                      : "Today"),
+              _receiptRow("Status:", "ACTIVE ✅"),
               const SizedBox(height: 40),
-              const Icon(Icons.qr_code_2, size: 200),
-              const SizedBox(height: 40),
-              ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE")),
+              const Icon(Icons.qr_code_scanner,
+                  size: 180, color: Colors.black87),
+              const SizedBox(height: 20),
+              const Text(
+                  "This receipt confirms the driver is a verified member of the Tana Digital Platform in Bahir Dar.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 10, color: Colors.grey)),
+              const SizedBox(height: 30),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CLOSE")),
             ],
           ),
         ),
@@ -298,7 +462,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(value,
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       ),
     );
