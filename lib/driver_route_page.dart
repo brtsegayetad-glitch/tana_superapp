@@ -5,15 +5,16 @@ import 'package:intl/intl.dart';
 import 'admin_panel.dart';
 import 'registration_page.dart';
 
-// --- THE DICTIONARY (Only one definition here) ---
 final Map<String, Map<String, String>> localizedText = {
   'en': {
     'title': 'Tana Wallet',
     'balance': 'Balance',
-    'step1': 'STEP 1: SEND TELEBIRR',
+    'step1': 'STEP 1: DEPOSIT FUNDS (Telebirr or Bank)',
+    'pay_to': 'Pay to (Tana Wallet):',
+    'bank_details': 'CBE: 1000312990974\nBOA: 93150996',
     'step2': 'STEP 2: ENTER DETAILS',
     'amount': 'Amount Sent (Birr)',
-    'txid': 'Transaction ID (TXID)',
+    'txid': 'Reference / Transaction ID',
     'submit': 'SUBMIT FOR APPROVAL',
     'permit': 'PERMIT ACTIVE',
     'pay_req': 'PAYMENT REQUIRED',
@@ -36,10 +37,12 @@ final Map<String, Map<String, String>> localizedText = {
   'am': {
     'title': 'ታና ዋሌት',
     'balance': 'ሒሳብ',
-    'step1': 'ደረጃ 1፡ በቴሌብር ይላኩ',
+    'step1': 'ደረጃ 1፡ ገንዘብ ያስገቡ (በቴሌብር ወይም በባንክ)',
+    'pay_to': 'ክፍያ የሚፈጽሙበት ቁጥር፡',
+    'bank_details': 'CBE: 1000312990974\nአቢሲኒያ፡ 93150996',
     'step2': 'ደረጃ 2፡ ዝርዝር መረጃ ያስገቡ',
     'amount': 'የተላከው ብር (በብር)',
-    'txid': 'የመለያ ቁጥር (TXID)',
+    'txid': 'የማረጋገጫ ቁጥር (Reference / TXID)',
     'submit': 'ለማረጋገጥ ይላኩ',
     'permit': 'ፈቃድ ገቢ ሆኗል',
     'pay_req': 'ክፍያ ይጠበቅብዎታል',
@@ -278,17 +281,27 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.orange.shade300),
                         ),
-                        child: const Column(
+                        child: Column(
                           children: [
-                            Text("Pay to (Tana Wallet):",
-                                style: TextStyle(fontSize: 12)),
-                            SizedBox(height: 4),
-                            Text("0940651491",
-                                style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.red,
-                                    letterSpacing: 1.5)),
+                            Text(localizedText[lang]!['pay_to']!,
+                                style: const TextStyle(fontSize: 12)),
+                            const SizedBox(height: 4),
+                            const Text(
+                              "0940651491 (Telebirr)",
+                              style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red),
+                            ),
+                            const Divider(),
+                            Text(
+                              localizedText[lang]!['bank_details']!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87),
+                            ),
                           ],
                         ),
                       ),
@@ -315,12 +328,19 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                       ),
                       const SizedBox(height: 15),
                       ElevatedButton(
-                        onPressed: submitDepositRequest,
+                        onPressed: isLoading ? null : submitDepositRequest,
                         style: ElevatedButton.styleFrom(
                             minimumSize: const Size(double.infinity, 45),
-                            backgroundColor: Colors.teal,
+                            backgroundColor:
+                                isLoading ? Colors.grey : Colors.teal,
                             foregroundColor: Colors.white),
-                        child: Text(localizedText[lang]!['submit']!),
+                        child: isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : Text(localizedText[lang]!['submit']!),
                       ),
                     ],
                   ),
