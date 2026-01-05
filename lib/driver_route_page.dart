@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'admin_panel.dart';
 import 'registration_page.dart';
 
-// 1. The Dictionary stays outside the class
+// --- THE DICTIONARY (Only one definition here) ---
 final Map<String, Map<String, String>> localizedText = {
   'en': {
     'title': 'Tana Wallet',
@@ -21,6 +21,17 @@ final Map<String, Map<String, String>> localizedText = {
     'history': 'Recent Activity',
     'pay_btn': 'PAY',
     'receipt_btn': 'SHOW TRAFFIC PERMIT',
+    'receipt_header': 'TANA SUPERAPP - DIGITAL RECEIPT',
+    'receipt_verified': 'SERVICE ACCESS VERIFIED',
+    'receipt_provider': 'Provider:',
+    'receipt_name': 'Bajaj Name:',
+    'receipt_plate': 'Plate Number:',
+    'receipt_date': 'Payment Date:',
+    'receipt_status': 'Status:',
+    'receipt_active': 'ACTIVE ✅',
+    'receipt_footer':
+        'This receipt confirms the driver is a verified member of the Tana Digital Platform.',
+    'close': 'CLOSE',
   },
   'am': {
     'title': 'ታና ዋሌት',
@@ -36,6 +47,16 @@ final Map<String, Map<String, String>> localizedText = {
     'history': 'የቅርብ ጊዜ እንቅስቃሴዎች',
     'pay_btn': 'ክፍያ ፈጽም',
     'receipt_btn': 'የመንገድ ፈቃድ አሳይ',
+    'receipt_header': 'ታና ሱፐር አፕ - ዲጂታል ደረሰኝ',
+    'receipt_verified': 'የአገልግሎት ፈቃድ ተረጋግጧል',
+    'receipt_provider': 'አቅራቢ፡',
+    'receipt_name': 'የባጃጅ ስም፡',
+    'receipt_plate': 'የሰሌዳ ቁጥር፡',
+    'receipt_date': 'የተከፈለበት ቀን፡',
+    'receipt_status': 'ሁኔታ፡',
+    'receipt_active': 'ንቁ ✅',
+    'receipt_footer': 'ይህ ደረሰኝ አሽከርካሪው በታና ዲጂታል ፕላትፎርም የተመዘገበ መሆኑን ያረጋግጣል።',
+    'close': 'ዝጋ',
   }
 };
 
@@ -418,36 +439,38 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           child: Column(
             children: [
               const Icon(Icons.verified, color: Colors.teal, size: 90),
-              const Text("TANA SUPERAPP - DIGITAL RECEIPT",
-                  style: TextStyle(
+              Text(localizedText[lang]!['receipt_header']!,
+                  style: const TextStyle(
                       color: Colors.teal,
                       fontWeight: FontWeight.bold,
                       fontSize: 14)),
-              const Text("SERVICE ACCESS VERIFIED",
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              Text(localizedText[lang]!['receipt_verified']!,
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold)),
               const Divider(height: 40),
-              _receiptRow("Provider:", "Tana Digital Solutions"),
-              _receiptRow("Bajaj Name:", bajajName),
-              _receiptRow("Plate Number:", plateNumber),
+              _receiptRow(localizedText[lang]!['receipt_provider']!,
+                  "Tana Digital Solutions"),
+              _receiptRow(localizedText[lang]!['receipt_name']!, bajajName),
+              _receiptRow(localizedText[lang]!['receipt_plate']!, plateNumber),
               _receiptRow(
-                  "Payment Date:",
+                  localizedText[lang]!['receipt_date']!,
                   lastPaymentDate != null
                       ? DateFormat('MMM d, yyyy')
                           .format(lastPaymentDate!.toDate())
                       : "Today"),
-              _receiptRow("Status:", "ACTIVE ✅"),
+              _receiptRow(localizedText[lang]!['receipt_status']!,
+                  localizedText[lang]!['receipt_active']!),
               const SizedBox(height: 40),
               const Icon(Icons.qr_code_scanner,
                   size: 180, color: Colors.black87),
               const SizedBox(height: 20),
-              const Text(
-                  "This receipt confirms the driver is a verified member of the Tana Digital Platform in Bahir Dar.",
+              Text(localizedText[lang]!['receipt_footer']!,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
               const SizedBox(height: 30),
               ElevatedButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("CLOSE")),
+                  child: Text(localizedText[lang]!['close']!)),
             ],
           ),
         ),
