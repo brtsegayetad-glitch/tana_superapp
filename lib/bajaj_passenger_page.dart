@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
-import 'dart:math'; 
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BajajPassengerPage extends StatefulWidget {
@@ -13,19 +13,23 @@ class BajajPassengerPage extends StatefulWidget {
 }
 
 class _BajajPassengerPageState extends State<BajajPassengerPage> {
-  bool isSearching = false;
+  // Logic:
+  // 'idle' -> shows Request Button
+  // 'searching' or 'accepted' -> shows Driver Card & OTP
+  // 'finished' -> shows Rating
+  String tripStatus = "idle";
 
-  // Your original Bahir Dar positions
   LatLng bajajPosition = const LatLng(11.5880, 37.3600);
   final LatLng customerPosition = const LatLng(11.5742, 37.3614);
 
-  // Your original animation logic
   void startBajajMovement() {
     Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
       setState(() {
-        double newLat = bajajPosition.latitude + (customerPosition.latitude - bajajPosition.latitude) * 0.01;
-        double newLng = bajajPosition.longitude + (customerPosition.longitude - bajajPosition.longitude) * 0.01;
+        double newLat = bajajPosition.latitude +
+            (customerPosition.latitude - bajajPosition.latitude) * 0.01;
+        double newLng = bajajPosition.longitude +
+            (customerPosition.longitude - bajajPosition.longitude) * 0.01;
         bajajPosition = LatLng(newLat, newLng);
         if ((customerPosition.latitude - newLat).abs() < 0.0001) {
           timer.cancel();
@@ -34,31 +38,34 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
-  // UPDATED: Rating Dialog function
-  void _showRatingDialog(BuildContext context) {
+  void _showRatingDialog() {
     int selectedStars = 5;
     showDialog(
       context: context,
-      barrierDismissible: false, 
+      barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text("How was your ride?", textAlign: TextAlign.center),
+              title: const Text("Arrival!", textAlign: TextAlign.center),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("Rate your driver (Abebe)"),
+                  const Text("How was your ride with Abebe?"),
                   const SizedBox(height: 10),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(5, (index) {
                       return IconButton(
                         icon: Icon(
-                          index < selectedStars ? Icons.star : Icons.star_border,
-                          color: Colors.amber, size: 30,
+                          index < selectedStars
+                              ? Icons.star
+                              : Icons.star_border,
+                          color: Colors.amber,
+                          size: 30,
                         ),
-                        onPressed: () => setState(() => selectedStars = index + 1),
+                        onPressed: () =>
+                            setDialogState(() => selectedStars = index + 1),
                       );
                     }),
                   ),
@@ -73,8 +80,11 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                       'timestamp': FieldValue.serverTimestamp(),
                     });
                     Navigator.pop(context);
+                    setState(() => tripStatus =
+                        "idle"); // Reset to show Request button again
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Thank you for your feedback!")),
+                      const SnackBar(
+                          content: Text("Thank you for your feedback!")),
                     );
                   },
                   child: const Text("SUBMIT"),
@@ -98,11 +108,11 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         'passenger_name': 'Passenger in Bahir Dar',
         'location': 'Near Bus Station',
         'price': 60,
-        'otp': newOtp, 
+        'otp': newOtp,
         'timestamp': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      print("Firestore Error: $e");
+      debugPrint("Firestore Error: $e");
     }
   }
 
@@ -125,24 +135,27 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 markers: [
                   Marker(
                     point: customerPosition,
-                    child: const Icon(Icons.location_on, color: Colors.blue, size: 40),
+                    child: const Icon(Icons.location_on,
+                        color: Colors.blue, size: 40),
                   ),
                   Marker(
                     point: bajajPosition,
                     width: 40,
                     height: 40,
-                    child: const Icon(Icons.local_taxi, color: Colors.teal, size: 35),
+                    child: const Icon(Icons.local_taxi,
+                        color: Colors.teal, size: 35),
                   ),
                 ],
               ),
             ],
           ),
-          
           Positioned(
             bottom: 20,
             left: 20,
             right: 20,
-            child: isSearching ? _buildDriverFoundCard() : _buildRequestButton(),
+            child: tripStatus == "idle"
+                ? _buildRequestButton()
+                : _buildLiveRideCard(),
           ),
         ],
       ),
@@ -157,37 +170,43 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       onPressed: () async {
-        setState(() => isSearching = true);
+        setState(() => tripStatus = "searching");
         await sendRequestToCloud();
         startBajajMovement();
       },
-      child: const Text("REQUEST BAJAJ", style: TextStyle(color: Colors.white, fontSize: 18)),
+      child: const Text("REQUEST BAJAJ",
+          style: TextStyle(color: Colors.white, fontSize: 18)),
     );
   }
 
-  Widget _buildDriverFoundCard() {
+  Widget _buildLiveRideCard() {
     return StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('ride_requests')
             .doc('test_ride')
             .snapshots(),
         builder: (context, snapshot) {
-          // CHECK: If trip is finished (deleted), show rating and reset
-          if (isSearching && (!snapshot.hasData || !snapshot.data!.exists)) {
-             WidgetsBinding.instance.addPostFrameCallback((_) {
-                setState(() => isSearching = false);
-                _showRatingDialog(context);
-             });
-             return const SizedBox(); 
+          // CRITICAL FIX: If trip document is deleted by driver, it means trip is FINISHED
+          if (tripStatus != "idle" &&
+              snapshot.hasData &&
+              !snapshot.data!.exists) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (tripStatus != "finished") {
+                setState(() => tripStatus = "finished");
+                _showRatingDialog();
+              }
+            });
+            return const SizedBox();
           }
 
-          String displayStatus = "SEARCHING...";
+          String displayStatus = "SEARCHING FOR BAJAJ...";
           String otpValue = "----";
 
           if (snapshot.hasData && snapshot.data!.exists) {
             var data = snapshot.data!.data() as Map<String, dynamic>;
             otpValue = data['otp'] ?? "----";
-            if (data['status'] == 'accepted') displayStatus = "BAJAJ IS COMING!";
+            if (data['status'] == 'accepted')
+              displayStatus = "BAJAJ IS COMING!";
             if (data['status'] == 'started') displayStatus = "TRIP IN PROGRESS";
           }
 
@@ -196,15 +215,25 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(15),
-              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
+              boxShadow: const [
+                BoxShadow(color: Colors.black26, blurRadius: 10)
+              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(displayStatus, style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
+                Text(displayStatus,
+                    style: const TextStyle(
+                        color: Colors.teal, fontWeight: FontWeight.bold)),
                 const Divider(),
-                const Text("SHARE THIS CODE WITH DRIVER:", style: TextStyle(fontSize: 10, color: Colors.grey)),
-                Text(otpValue, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue, letterSpacing: 5)),
+                const Text("SHARE THIS OTP CODE WITH DRIVER:",
+                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(otpValue,
+                    style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                        letterSpacing: 5)),
                 const SizedBox(height: 10),
                 const Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -213,11 +242,17 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Abebe Kebede", style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text("Plate: AA-3-0456", style: TextStyle(fontSize: 12)),
+                        Text("Abebe Kebede",
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text("Plate: AA-3-0456",
+                            style: TextStyle(fontSize: 12)),
                       ],
                     ),
-                    Text("ETB 60", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
+                    Text("60 ETB",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.green)),
                   ],
                 ),
               ],

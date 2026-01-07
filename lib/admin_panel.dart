@@ -64,11 +64,13 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         var docs = snapshot.data!.docs;
-        if (docs.isEmpty)
+        if (docs.isEmpty) {
           return const Center(child: Text("No pending deposits."));
+        }
 
         return ListView.builder(
           itemCount: docs.length,
@@ -101,8 +103,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('commissions').snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         double total = 0;
         for (var doc in snapshot.data!.docs) {
           total += (doc['commission'] ?? 0.0);
@@ -142,8 +145,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
 
         Map<String, Map<String, dynamic>> associationStats = {};
         for (var doc in snapshot.data!.docs) {
