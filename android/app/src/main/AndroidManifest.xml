@@ -5,6 +5,10 @@
         android:label="Tana SuperApp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        
+        <meta-data android:name="com.google.android.geo.API_KEY"
+           android:value="AIzaSyAl7OzKPNc_O_Rnnx8gJl_sRPp_c3xV6QU"/>
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"

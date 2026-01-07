@@ -2,12 +2,19 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
+
+// Your Actual App Pages
 import 'driver_route_page.dart';
+import 'market_home_page.dart';
+import 'bajaj_passenger_page.dart';
+import 'bajaj_driver_page.dart';
+import 'registration_page.dart';
+import 'admin_panel.dart'; // Import your unified admin panel here
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initializes Firebase with your specific Bahir Dar project settings
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const TanaSuperApp());
 }
@@ -24,20 +31,39 @@ class TanaSuperApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      // THE GATEKEEPER: This decides which page to show on start
+      // Logic to decide: Login Screen or Home Screen?
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
-          // While checking the cloud...
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
                 body: Center(child: CircularProgressIndicator()));
           }
-          // If a user is found in memory, go to Home
+
+          // IF LOGGED IN
           if (snapshot.hasData) {
-            return const HomeScreen();
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(snapshot.data!.uid)
+                  .get(),
+              builder: (context, userSnapshot) {
+                if (userSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()));
+                }
+
+                // If document doesn't exist, they need to register
+                if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
+                  return const RegistrationPage();
+                }
+
+                return const HomeScreen();
+              },
+            );
           }
-          // Otherwise, go to Login
+
+          // IF NOT LOGGED IN
           return const AuthScreen();
         },
       ),
@@ -45,6 +71,7 @@ class TanaSuperApp extends StatelessWidget {
   }
 }
 
+// --- AUTHENTICATION SCREEN ---
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -64,21 +91,16 @@ class _AuthScreenState extends State<AuthScreen> {
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-        print("User Logged In!");
       } else {
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-        print("New User Created in Bahir Dar!");
       }
-      // Note: We no longer need Navigator.push here because
-      // the StreamBuilder in TanaSuperApp will notice the change automatically!
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
   }
@@ -137,6 +159,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
+// --- MAIN HOME SCREEN (WITH ROLE LOGIC) ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -147,61 +170,82 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
-    const Center(child: Text("Hullugebeya Marketplace Coming Soon")),
-    const DriverRoutePage(),
-    const ProfilePage(),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title:
-            const Text("Tana SuperApp", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.teal,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              // StreamBuilder handles the move back to AuthScreen!
-            },
-          ),
-        ],
-      ),
-      body: _pages[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.teal,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.store), label: 'Market'),
-          BottomNavigationBarItem(icon: Icon(Icons.local_taxi), label: 'Bajaj'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ],
-      ),
-    );
-  }
-}
+    final user = FirebaseAuth.instance.currentUser;
 
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.person, size: 100, color: Colors.teal),
-          const Text("Your Bahir Dar Profile", style: TextStyle(fontSize: 20)),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () async => await FirebaseAuth.instance.signOut(),
-            child: const Text("Logout"),
+    return FutureBuilder<DocumentSnapshot>(
+      future:
+          FirebaseFirestore.instance.collection('users').doc(user?.uid).get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+
+        var userData = snapshot.data!.data() as Map<String, dynamic>;
+        String role = userData['role'] ?? 'Passenger';
+
+        // 1. Pages for everyone
+        List<Widget> pages = [
+          const TanaMarketPage(),
+          const BajajPassengerPage()
+        ];
+        List<BottomNavigationBarItem> navItems = [
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.store), label: 'Market'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.local_taxi), label: 'Ride'),
+        ];
+
+        // 2. Additional pages for Drivers only
+        if (role == 'Driver') {
+          pages.add(const DriverRoutePage());
+          pages.add(const BajajDriverPage());
+          navItems.add(const BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet), label: 'Pay'));
+          navItems.add(const BottomNavigationBarItem(
+              icon: Icon(Icons.drive_eta), label: 'Driver'));
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(role == 'Driver' ? "Tana Driver Mode" : "Tana SuperApp",
+                style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.teal,
+            actions: [
+              // --- SECRET ADMIN BUTTON ---
+              // Replace 'your-email@gmail.com' with your actual email
+              if (user?.email == "your-email@gmail.com")
+                IconButton(
+                  icon: const Icon(Icons.admin_panel_settings,
+                      color: Colors.white),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const AdminPanelPage()),
+                    );
+                  },
+                ),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.white),
+                onPressed: () async => await FirebaseAuth.instance.signOut(),
+              ),
+            ],
           ),
-        ],
-      ),
+          body: pages[_selectedIndex >= pages.length ? 0 : _selectedIndex],
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex:
+                _selectedIndex >= navItems.length ? 0 : _selectedIndex,
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: Colors.teal,
+            unselectedItemColor: Colors.grey,
+            onTap: (index) => setState(() => _selectedIndex = index),
+            items: navItems,
+          ),
+        );
+      },
     );
   }
 }
