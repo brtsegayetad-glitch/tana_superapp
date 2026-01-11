@@ -251,8 +251,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           .doc('test_ride')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists)
+        if (!snapshot.hasData || !snapshot.data!.exists) {
           return const SizedBox();
+        }
         var data = snapshot.data!.data() as Map<String, dynamic>;
         String status = data['status'] ?? '';
         String otp = data['otp'] ?? '----';
@@ -289,9 +290,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const CircleAvatar(child: Icon(Icons.person)),
-                  Column(
+                  const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text("Abebe Kebede",
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       Text("Plate: AA-3-0456", style: TextStyle(fontSize: 12)),
