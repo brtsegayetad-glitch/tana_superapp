@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart'; // IMPORTANT: Add this to your pubspec.yaml
+import 'package:url_launcher/url_launcher.dart';
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -17,16 +17,11 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   String tripStatus = "idle";
   StreamSubscription? rideSubscription;
 
-  // Bahir Dar Coordinates
   LatLng bajajPosition = const LatLng(11.5880, 37.3600);
   final LatLng customerPosition = const LatLng(11.5742, 37.3614);
 
-  // --- NEW: CALL CENTER LOGIC ---
   Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
     } else {
@@ -40,7 +35,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     super.dispose();
   }
 
-  // --- 1. THE SECRET LISTENER (UNCHANGED) ---
   void listenForTripCompletion() {
     rideSubscription?.cancel();
     rideSubscription = FirebaseFirestore.instance
@@ -51,7 +45,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       if (snapshot.exists) {
         var data = snapshot.data() as Map<String, dynamic>;
         String status = data['status'] ?? '';
-
         if (status == 'completed' && tripStatus != "finished") {
           setState(() => tripStatus = "finished");
           _showRatingDialog();
@@ -60,7 +53,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
-  // --- 2. RATING DIALOG (UNCHANGED) ---
   void _showRatingDialog() {
     int selectedStars = 5;
     showDialog(
@@ -103,12 +95,10 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                       'rating': selectedStars,
                       'timestamp': FieldValue.serverTimestamp(),
                     });
-
                     await FirebaseFirestore.instance
                         .collection('ride_requests')
                         .doc('test_ride')
                         .delete();
-
                     rideSubscription?.cancel();
                     if (!mounted) return;
                     Navigator.pop(context);
@@ -125,7 +115,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     );
   }
 
-  // --- 3. ANIMATION LOGIC (UNCHANGED) ---
   void startBajajMovement() {
     Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
@@ -140,28 +129,20 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
-  // --- 4. REQUEST LOGIC (UNCHANGED) ---
   Future<void> sendRequestToCloud() async {
     var priceDoc = await FirebaseFirestore.instance
         .collection('settings')
         .doc('pricing')
         .get();
-
     double basePrice = 50.0;
     double pricePerKm = 15.0;
-
     if (priceDoc.exists) {
       basePrice = (priceDoc.data()!['base_price'] ?? 50.0).toDouble();
       pricePerKm = (priceDoc.data()!['per_km'] ?? 15.0).toDouble();
     }
-
     const Distance distanceCalculator = Distance();
     double meterDistance = distanceCalculator.as(
-      LengthUnit.Meter,
-      bajajPosition,
-      customerPosition,
-    );
-
+        LengthUnit.Meter, bajajPosition, customerPosition);
     double kmDistance = meterDistance / 1000.0;
     double finalFare = basePrice + (kmDistance * pricePerKm);
     String newOtp = (1000 + Random().nextInt(9000)).toString();
@@ -210,18 +191,26 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
             bottom: 20,
             left: 20,
             right: 20,
-            child: tripStatus == "idle"
-               // --- UPDATED UI: NOW FULLY CLICKABLE ---
+            child:
+                tripStatus == "idle" ? _buildIdleMenu() : _buildLiveRideCard(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- UI HELPER FUNCTIONS (Outside the Build tree) ---
+
   Widget _buildIdleMenu() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Button 1: App Request
         ElevatedButton(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.teal,
             minimumSize: const Size(double.infinity, 55),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onPressed: () async {
             setState(() => tripStatus = "searching");
@@ -236,15 +225,14 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                   fontWeight: FontWeight.bold)),
         ),
         const SizedBox(height: 10),
-        
-        // Button 2: Call Short Code (Now active)
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[700],
             minimumSize: const Size(double.infinity, 55),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          onPressed: () => _makePhoneCall("8000"), // Updated number
+          onPressed: () => _makePhoneCall("8000"),
           icon: const Icon(Icons.phone_in_talk, color: Colors.white),
           label: const Text("CALL TO ORDER (SHORT CODE)",
               style: TextStyle(
@@ -263,15 +251,12 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           .doc('test_ride')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
+        if (!snapshot.hasData || !snapshot.data!.exists)
           return const SizedBox();
-        }
-
         var data = snapshot.data!.data() as Map<String, dynamic>;
         String status = data['status'] ?? '';
         String otp = data['otp'] ?? '----';
         int price = data['price'] ?? 0;
-
         String displayStatus =
             status == 'started' ? "TRIP IN PROGRESS" : "BAJAJ IS COMING!";
 
@@ -304,9 +289,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const CircleAvatar(child: Icon(Icons.person)),
-                  const Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                    children: const [
                       Text("Abebe Kebede",
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       Text("Plate: AA-3-0456", style: TextStyle(fontSize: 12)),
