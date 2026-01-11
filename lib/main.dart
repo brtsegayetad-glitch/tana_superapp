@@ -10,8 +10,8 @@ import 'driver_route_page.dart';
 import 'market_home_page.dart';
 import 'bajaj_passenger_page.dart';
 import 'bajaj_driver_page.dart';
-import 'registration_page.dart';
-import 'admin_panel.dart'; // Import your unified admin panel here
+import 'registration_page.dart'; // This file contains your AuthPage class
+import 'admin_panel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +31,7 @@ class TanaSuperApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      // Logic to decide: Login Screen or Home Screen?
+      // Logic to decide: Auth Screen or Home Screen?
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -53,9 +53,9 @@ class TanaSuperApp extends StatelessWidget {
                       body: Center(child: CircularProgressIndicator()));
                 }
 
-                // If document doesn't exist, they need to register
+                // If user document doesn't exist in Firestore, send to Registration/AuthPage
                 if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
-                  return const RegistrationPage();
+                  return const AuthPage();
                 }
 
                 return const HomeScreen();
@@ -64,96 +64,8 @@ class TanaSuperApp extends StatelessWidget {
           }
 
           // IF NOT LOGGED IN
-          return const AuthScreen();
+          return const AuthPage();
         },
-      ),
-    );
-  }
-}
-
-// --- AUTHENTICATION SCREEN ---
-class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
-
-  @override
-  State<AuthScreen> createState() => _AuthScreenState();
-}
-
-class _AuthScreenState extends State<AuthScreen> {
-  bool isLogin = true;
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-
-  Future<void> _handleAuth() async {
-    try {
-      if (isLogin) {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-      } else {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(30.0),
-          child: Column(
-            children: [
-              const SizedBox(height: 60),
-              const Icon(Icons.water_drop, size: 80, color: Colors.teal),
-              Text(
-                isLogin ? "TANA LOGIN" : "TANA SIGNUP",
-                style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal),
-              ),
-              const SizedBox(height: 30),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                    labelText: "Email", border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                    labelText: "Password", border: OutlineInputBorder()),
-                obscureText: true,
-              ),
-              const SizedBox(height: 25),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                onPressed: _handleAuth,
-                child: Text(isLogin ? "LOGIN" : "CREATE ACCOUNT",
-                    style: const TextStyle(color: Colors.white)),
-              ),
-              TextButton(
-                onPressed: () => setState(() => isLogin = !isLogin),
-                child: Text(isLogin
-                    ? "Don't have an account? Sign Up"
-                    : "Back to Login"),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -170,6 +82,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
+  // Professional Logout Function
+  Future<void> _handleLogout() async {
+    await FirebaseAuth.instance.signOut();
+    // The StreamBuilder in TanaSuperApp will automatically see the logout
+    // and show the AuthPage, so we don't need manual navigation here.
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -178,13 +97,18 @@ class _HomeScreenState extends State<HomeScreen> {
       future:
           FirebaseFirestore.instance.collection('users').doc(user?.uid).get(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
 
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const AuthPage();
+        }
+
         var userData = snapshot.data!.data() as Map<String, dynamic>;
         String role = userData['role'] ?? 'Passenger';
+        String name = userData['fullName'] ?? 'User';
 
         // 1. Pages for everyone
         List<Widget> pages = [
@@ -210,13 +134,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(role == 'Driver' ? "Tana Driver Mode" : "Tana SuperApp",
-                style: const TextStyle(color: Colors.white)),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style:
+                        const TextStyle(fontSize: 14, color: Colors.white70)),
+                Text(role == 'Driver' ? "Driver Mode" : "Hullugebeya",
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white)),
+              ],
+            ),
             backgroundColor: Colors.teal,
             actions: [
-              // --- SECRET ADMIN BUTTON ---
-              // Replace 'your-email@gmail.com' with your actual email
-              if (user?.email == "your-email@gmail.com")
+              // ADMIN BUTTON: Replace with your actual phone-email
+              if (user?.email == "0912345678@hullu.com")
                 IconButton(
                   icon: const Icon(Icons.admin_panel_settings,
                       color: Colors.white),
@@ -230,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               IconButton(
                 icon: const Icon(Icons.logout, color: Colors.white),
-                onPressed: () async => await FirebaseAuth.instance.signOut(),
+                onPressed: _handleLogout,
               ),
             ],
           ),

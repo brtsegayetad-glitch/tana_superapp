@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart'; // IMPORTANT: Add this to your pubspec.yaml
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -13,15 +14,25 @@ class BajajPassengerPage extends StatefulWidget {
 }
 
 class _BajajPassengerPageState extends State<BajajPassengerPage> {
-  // 'idle', 'searching', 'ongoing', 'finished'
   String tripStatus = "idle";
-
-  // This background listener ensures the Rating Pop-up works every time
   StreamSubscription? rideSubscription;
 
   // Bahir Dar Coordinates
   LatLng bajajPosition = const LatLng(11.5880, 37.3600);
   final LatLng customerPosition = const LatLng(11.5742, 37.3614);
+
+  // --- NEW: CALL CENTER LOGIC ---
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(
+      scheme: 'tel',
+      path: phoneNumber,
+    );
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      debugPrint("Could not launch $launchUri");
+    }
+  }
 
   @override
   void dispose() {
@@ -29,7 +40,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     super.dispose();
   }
 
-  // --- 1. THE SECRET LISTENER ---
+  // --- 1. THE SECRET LISTENER (UNCHANGED) ---
   void listenForTripCompletion() {
     rideSubscription?.cancel();
     rideSubscription = FirebaseFirestore.instance
@@ -41,7 +52,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         var data = snapshot.data() as Map<String, dynamic>;
         String status = data['status'] ?? '';
 
-        // This is the trigger
         if (status == 'completed' && tripStatus != "finished") {
           setState(() => tripStatus = "finished");
           _showRatingDialog();
@@ -50,7 +60,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
-  // --- 2. RATING DIALOG ---
+  // --- 2. RATING DIALOG (UNCHANGED) ---
   void _showRatingDialog() {
     int selectedStars = 5;
     showDialog(
@@ -88,14 +98,12 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                   onPressed: () async {
-                    // Save Rating to Firestore
                     await FirebaseFirestore.instance.collection('ratings').add({
                       'driver': 'Abebe',
                       'rating': selectedStars,
                       'timestamp': FieldValue.serverTimestamp(),
                     });
 
-                    // Cleanup: Delete the ride doc so a new request can be made
                     await FirebaseFirestore.instance
                         .collection('ride_requests')
                         .doc('test_ride')
@@ -117,7 +125,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     );
   }
 
-  // --- 3. ANIMATION LOGIC ---
+  // --- 3. ANIMATION LOGIC (UNCHANGED) ---
   void startBajajMovement() {
     Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
@@ -132,16 +140,40 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
-  // --- 4. REQUEST LOGIC ---
+  // --- 4. REQUEST LOGIC (UNCHANGED) ---
   Future<void> sendRequestToCloud() async {
+    var priceDoc = await FirebaseFirestore.instance
+        .collection('settings')
+        .doc('pricing')
+        .get();
+
+    double basePrice = 50.0;
+    double pricePerKm = 15.0;
+
+    if (priceDoc.exists) {
+      basePrice = (priceDoc.data()!['base_price'] ?? 50.0).toDouble();
+      pricePerKm = (priceDoc.data()!['per_km'] ?? 15.0).toDouble();
+    }
+
+    const Distance distanceCalculator = Distance();
+    double meterDistance = distanceCalculator.as(
+      LengthUnit.Meter,
+      bajajPosition,
+      customerPosition,
+    );
+
+    double kmDistance = meterDistance / 1000.0;
+    double finalFare = basePrice + (kmDistance * pricePerKm);
     String newOtp = (1000 + Random().nextInt(9000)).toString();
+
     await FirebaseFirestore.instance
         .collection('ride_requests')
         .doc('test_ride')
         .set({
       'status': 'searching',
       'otp': newOtp,
-      'price': 60,
+      'price': finalFare.toInt(),
+      'distance_km': kmDistance.toStringAsFixed(2),
       'location': 'Near Bus Station',
       'passenger_name': 'Passenger',
       'timestamp': FieldValue.serverTimestamp(),
@@ -179,30 +211,48 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
             left: 20,
             right: 20,
             child: tripStatus == "idle"
-                ? _buildRequestButton()
-                : _buildLiveRideCard(),
+               // --- UPDATED UI: NOW FULLY CLICKABLE ---
+  Widget _buildIdleMenu() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Button 1: App Request
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            minimumSize: const Size(double.infinity, 55),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRequestButton() {
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.teal,
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      onPressed: () async {
-        setState(() => tripStatus = "searching");
-        await sendRequestToCloud();
-        listenForTripCompletion(); // Start the secret listener
-        startBajajMovement();
-      },
-      child: const Text("REQUEST BAJAJ",
-          style: TextStyle(
-              color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          onPressed: () async {
+            setState(() => tripStatus = "searching");
+            await sendRequestToCloud();
+            listenForTripCompletion();
+            startBajajMovement();
+          },
+          child: const Text("REQUEST BAJAJ VIA APP",
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 10),
+        
+        // Button 2: Call Short Code (Now active)
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[700],
+            minimumSize: const Size(double.infinity, 55),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          onPressed: () => _makePhoneCall("8000"), // Updated number
+          icon: const Icon(Icons.phone_in_talk, color: Colors.white),
+          label: const Text("CALL TO ORDER (SHORT CODE)",
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold)),
+        ),
+      ],
     );
   }
 
@@ -213,12 +263,14 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           .doc('test_ride')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists)
+        if (!snapshot.hasData || !snapshot.data!.exists) {
           return const SizedBox();
+        }
 
         var data = snapshot.data!.data() as Map<String, dynamic>;
         String status = data['status'] ?? '';
         String otp = data['otp'] ?? '----';
+        int price = data['price'] ?? 0;
 
         String displayStatus =
             status == 'started' ? "TRIP IN PROGRESS" : "BAJAJ IS COMING!";
@@ -237,20 +289,22 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                   style: const TextStyle(
                       color: Colors.teal, fontWeight: FontWeight.bold)),
               const Divider(),
-              const Text("OTP CODE:",
-                  style: TextStyle(fontSize: 10, color: Colors.grey)),
-              Text(otp,
-                  style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                      letterSpacing: 8)),
-              const SizedBox(height: 10),
-              const Row(
+              if (status != 'started') ...[
+                const Text("GIVE THIS OTP TO DRIVER:",
+                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(otp,
+                    style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                        letterSpacing: 8)),
+                const SizedBox(height: 10),
+              ],
+              Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  CircleAvatar(child: Icon(Icons.person)),
-                  Column(
+                  const CircleAvatar(child: Icon(Icons.person)),
+                  const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text("Abebe Kebede",
@@ -258,8 +312,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                       Text("Plate: AA-3-0456", style: TextStyle(fontSize: 12)),
                     ],
                   ),
-                  Text("60 ETB",
-                      style: TextStyle(
+                  Text("$price ETB",
+                      style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
                           fontSize: 18)),

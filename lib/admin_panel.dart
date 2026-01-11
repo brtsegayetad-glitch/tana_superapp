@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart'; // Required for Clipboard (Copy Button)
-import 'package:intl/intl.dart'; // Required for Weekly Dates
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 class AdminPanelPage extends StatefulWidget {
   const AdminPanelPage({super.key});
@@ -13,8 +13,7 @@ class AdminPanelPage extends StatefulWidget {
 class _AdminPanelPageState extends State<AdminPanelPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final double routeCommissionPercent = 0.05; // 5% for Route
-  final double rideCommissionPercent = 0.10; // 10% for Ride
+  String _searchQuery = "";
 
   @override
   void initState() {
@@ -50,7 +49,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         children: [
           _buildApprovalsTab(),
           _buildRideHailingDashboard(),
-          _buildDashboardTab(), // This is where your Weekly Report lives
+          _buildDashboardTab(),
         ],
       ),
     );
@@ -67,6 +66,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
+
         var docs = snapshot.data!.docs;
         if (docs.isEmpty) {
           return const Center(child: Text("No pending deposits."));
@@ -78,7 +78,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             var doc = docs[index];
             var data = doc.data() as Map<String, dynamic>;
             return Card(
-              margin: const EdgeInsets.all(10),
+              margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
               child: ListTile(
                 title: Text(
                     "${data['driverName'] ?? 'Unknown'} - ${data['amount']} ETB"),
@@ -98,41 +98,157 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
-  // --- 2. RIDE DASHBOARD ---
+  // --- 2. RIDE DASHBOARD (PRICE SETTINGS + SEARCH + DEBT) ---
   Widget _buildRideHailingDashboard() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('commissions').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        double total = 0;
-        for (var doc in snapshot.data!.docs) {
-          total += (doc['commission'] ?? 0.0);
-        }
-        return ListView(
-          padding: const EdgeInsets.all(15),
-          children: [
-            _buildStatCard("Total Ride Commissions",
-                "ETB ${total.toStringAsFixed(2)}", Colors.red.shade700),
-            const SizedBox(height: 10),
-            ...snapshot.data!.docs.map((doc) {
-              var data = doc.data() as Map<String, dynamic>;
-              return ListTile(
-                title: Text("Driver: ${data['driver']}"),
-                subtitle: Text("Trip: ${data['amount']} ETB"),
-                trailing: Text("Fee: ${data['commission']} ETB",
-                    style: const TextStyle(
-                        color: Colors.red, fontWeight: FontWeight.bold)),
-              );
-            }),
-          ],
-        );
-      },
+    return ListView(
+      padding: const EdgeInsets.all(15),
+      children: [
+        // A. SEARCH BAR
+        TextField(
+          decoration: InputDecoration(
+            hintText: "Search Driver by Name or Plate...",
+            prefixIcon: const Icon(Icons.search),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          onChanged: (value) {
+            setState(() {
+              _searchQuery = value.toLowerCase();
+            });
+          },
+        ),
+        const SizedBox(height: 20),
+
+        // B. CITY PRICE SETTINGS (Restored)
+        const Text("CITY PRICE SETTINGS (BAHIR DAR)",
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+        const SizedBox(height: 10),
+        StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('settings')
+              .doc('pricing')
+              .snapshots(),
+          builder: (context, snapshot) {
+            // Default values if Firebase is empty
+            double base = 50.0;
+            double perKm = 15.0;
+
+            if (snapshot.hasData && snapshot.data!.exists) {
+              var prices = snapshot.data!.data() as Map<String, dynamic>;
+              base = (prices['base_price'] ?? 50.0).toDouble();
+              perKm = (prices['per_km'] ?? 15.0).toDouble();
+            }
+
+            return Card(
+              color: Colors.blue.shade50,
+              child: ListTile(
+                leading: const Icon(Icons.settings_suggest, color: Colors.blue),
+                title: Text("Base: $base ETB | Per KM: $perKm ETB"),
+                subtitle: const Text("Tap to change city pricing"),
+                trailing: const Icon(Icons.edit, color: Colors.blue),
+                onTap: () => _showPriceEditDialog(base, perKm),
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 30),
+        const Text("DRIVER COMMISSION BALANCES",
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+        const Divider(),
+
+        // C. DRIVER LIST WITH SEARCH & REMINDERS
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance.collection('drivers').snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const SizedBox();
+
+            var filteredDocs = snapshot.data!.docs.where((doc) {
+              var driver = doc.data() as Map<String, dynamic>;
+              String name = (driver['name'] ?? "").toString().toLowerCase();
+              String plate = (driver['plate'] ?? "").toString().toLowerCase();
+              return name.contains(_searchQuery) ||
+                  plate.contains(_searchQuery);
+            }).toList();
+
+            return Column(
+              children: filteredDocs.map((doc) {
+                var driver = doc.data() as Map<String, dynamic>;
+                double debt = (driver['total_debt'] ?? 0.0).toDouble();
+                String driverId = doc.id;
+                String driverName = driver['name'] ?? "Unknown";
+
+                return Card(
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: debt > 300 ? Colors.red : Colors.teal,
+                      child: const Icon(Icons.person, color: Colors.white),
+                    ),
+                    title: Text(driverName),
+                    subtitle: Text("Owes: ${debt.toStringAsFixed(2)} ETB"),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.notifications_active,
+                              color: Colors.orange),
+                          onPressed: () =>
+                              _sendDebtReminder(driverId, driverName, debt),
+                          tooltip: "Send Reminder",
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _clearDriverDebt(doc.id),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green),
+                          child: const Text("PAY",
+                              style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+
+        const SizedBox(height: 30),
+        const Text("RECENT RIDE HISTORY",
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        const Divider(),
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('ride_history')
+              .orderBy('timestamp', descending: true)
+              .limit(10)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return Column(
+              children: snapshot.data!.docs.map((doc) {
+                var data = doc.data() as Map<String, dynamic>;
+                return ListTile(
+                  leading: const Icon(Icons.history, size: 20),
+                  title: Text("${data['driver_name'] ?? 'Driver'}"),
+                  subtitle: Text("Fare: ${data['fare']} ETB"),
+                  trailing: Text(
+                      "${data['commission_owed'] ?? data['commission'] ?? 0} ETB",
+                      style: const TextStyle(
+                          color: Colors.red, fontWeight: FontWeight.bold)),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
     );
   }
 
-  // --- 3. ROUTE DASHBOARD & WEEKLY REPORT ---
+  // --- 3. ROUTE DASHBOARD (5%) ---
   Widget _buildDashboardTab() {
     DateTime now = DateTime.now();
     DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
@@ -164,22 +280,19 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             associationStats[assoc]!['count'] += 1;
           }
         }
-
         return ListView(
           padding: const EdgeInsets.all(15),
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
-              color: Colors.blue.shade50,
-              child: Text("Reporting Period: $dateRange",
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-            ),
+                padding: const EdgeInsets.all(12),
+                color: Colors.blue.shade50,
+                child: Text("Reporting Period: $dateRange",
+                    style: const TextStyle(fontWeight: FontWeight.bold))),
             const SizedBox(height: 10),
             ...associationStats.entries.map((e) {
               double total = e.value['total'];
-              double commission = total * routeCommissionPercent;
+              double commission = total * 0.05;
               double net = total - commission;
-
               return Card(
                 elevation: 3,
                 margin: const EdgeInsets.only(bottom: 15),
@@ -223,39 +336,83 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
-  // --- HELPERS ---
-  Widget _row(String label, String val, {Color? color, bool bold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(val,
-              style: TextStyle(
-                  color: color,
-                  fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+  // --- ACTIONS & DIALOGS ---
+
+  void _showPriceEditDialog(double currentBase, double currentPerKm) {
+    TextEditingController baseCtrl =
+        TextEditingController(text: currentBase.toString());
+    TextEditingController kmCtrl =
+        TextEditingController(text: currentPerKm.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Update City Pricing"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: baseCtrl,
+                decoration:
+                    const InputDecoration(labelText: "Base Price (ETB)"),
+                keyboardType: TextInputType.number),
+            TextField(
+                controller: kmCtrl,
+                decoration:
+                    const InputDecoration(labelText: "Price Per KM (ETB)"),
+                keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("CANCEL")),
+          ElevatedButton(
+            onPressed: () async {
+              await FirebaseFirestore.instance
+                  .collection('settings')
+                  .doc('pricing')
+                  .set({
+                'base_price': double.parse(baseCtrl.text),
+                'per_km': double.parse(kmCtrl.text),
+              });
+              if (!mounted) return;
+              Navigator.pop(context);
+            },
+            child: const Text("SAVE CHANGES"),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(String title, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration:
-          BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          Text(title, style: const TextStyle(color: Colors.white)),
-          Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
+  Future<void> _sendDebtReminder(
+      String driverId, String name, double amount) async {
+    try {
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'target_driver_id': driverId,
+        'title': "Payment Reminder",
+        'message':
+            "Hello $name, your debt is ${amount.toStringAsFixed(2)} ETB. Please pay soon.",
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Reminder sent!"), backgroundColor: Colors.orange));
+    } catch (e) {
+      debugPrint("Error: $e");
+    }
+  }
+
+  Future<void> _clearDriverDebt(String driverId) async {
+    await FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(driverId)
+        .update({'total_debt': 0.0});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text("Debt Paid!")));
   }
 
   Future<void> _approveDeposit(String reqId, Map<String, dynamic> data) async {
@@ -271,8 +428,24 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       'uid': uid,
       'amount': amt,
       'type': 'deposit',
-      'timestamp': FieldValue.serverTimestamp(),
+      'timestamp': FieldValue.serverTimestamp()
     });
     await batch.commit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text("Approved!")));
+  }
+
+  Widget _row(String label, String val, {Color? color, bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label),
+        Text(val,
+            style: TextStyle(
+                color: color,
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal))
+      ]),
+    );
   }
 }

@@ -106,7 +106,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           (doc.data() as Map<String, dynamic>)['plateNumber'] == "---") {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const RegistrationPage()),
+          MaterialPageRoute(builder: (context) => const AuthPage()),
         ).then((_) => _loadWalletData());
       } else {
         var data = doc.data() as Map<String, dynamic>;
