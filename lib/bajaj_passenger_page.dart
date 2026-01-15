@@ -18,7 +18,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   String tripStatus = "idle";
   String currentOtp = "";
   StreamSubscription? rideSubscription;
-  StreamSubscription<Position>? _positionStream; // To track movement live
+  StreamSubscription<Position>? _positionStream;
 
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _pickupController =
@@ -27,46 +27,74 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
 
   // GPS VARIABLES
   LatLng? myRealPosition;
-  final LatLng customerPosition = const LatLng(11.5742, 37.3614); // Fallback
+  // Professional Fallback: Center of Bahir Dar
+  final LatLng customerPosition = const LatLng(11.5742, 37.3614);
   LatLng bajajPosition = const LatLng(11.5880, 37.3600);
 
   @override
   void initState() {
     super.initState();
-    _startLiveTracking(); // Professional: Start live tracking immediately
+    _initLocationLogic(); // Integrated Logic
     listenForTripUpdates();
   }
 
-  // --- PROFESSIONAL GPS LOGIC ---
-  void _startLiveTracking() async {
+  // --- COMPREHENSIVE GPS LOGIC ---
+  Future<void> _initLocationLogic() async {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Check if GPS services are on
+    // 1. Check if GPS hardware is turned on
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+      _showLocationSnackBar("Please turn on your GPS/Location services.");
+      return;
+    }
 
-    // Check for permissions
+    // 2. Handle Permissions
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
+      if (permission == LocationPermission.denied) {
+        _showLocationSnackBar("Location permission denied.");
+        return;
+      }
     }
 
-    // Start listening to the phone's GPS movements
+    if (permission == LocationPermission.deniedForever) {
+      _showLocationSnackBar(
+          "Location permissions are permanently denied. Please enable in settings.");
+      return;
+    }
+
+    // 3. GET LAST KNOWN POSITION (Instant Load)
+    // This removes the "infinite circling" problem
+    Position? lastPos = await Geolocator.getLastKnownPosition();
+    if (lastPos != null && mounted) {
+      setState(() {
+        myRealPosition = LatLng(lastPos.latitude, lastPos.longitude);
+      });
+    }
+
+    // 4. START LIVE STREAM (Precise Update)
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best, // High precision
-        distanceFilter: 2, // Updates every 2 meters you move
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 2,
       ),
     ).listen((Position position) {
       if (mounted) {
         setState(() {
-          // This automatically moves your Blue Icon on the map
           myRealPosition = LatLng(position.latitude, position.longitude);
         });
       }
+    }, onError: (e) {
+      debugPrint("GPS Stream Error: $e");
     });
+  }
+
+  void _showLocationSnackBar(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _makePhoneCall(String phoneNumber) async {
@@ -79,7 +107,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   @override
   void dispose() {
     rideSubscription?.cancel();
-    _positionStream?.cancel(); // Close the GPS stream
+    _positionStream?.cancel();
     _phoneController.dispose();
     _pickupController.dispose();
     _destinationController.dispose();
@@ -148,7 +176,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
       setState(() {
-        // Bajaj moves toward your real-time GPS position
         double targetLat = (myRealPosition ?? customerPosition).latitude;
         double targetLng = (myRealPosition ?? customerPosition).longitude;
 
@@ -183,60 +210,78 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Professional Fallback Logic
+    final LatLng activeCenter = myRealPosition ?? customerPosition;
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // PROFESSIONAL: Show a loading spinner until GPS is found
-          myRealPosition == null
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(color: Colors.teal),
-                      SizedBox(height: 10),
-                      Text("Finding your location...",
-                          style: TextStyle(color: Colors.teal)),
-                    ],
-                  ),
-                )
-              : FlutterMap(
-                  options: MapOptions(
-                    initialCenter: myRealPosition!, // Centers on real GPS
-                    initialZoom: 17.0, // Closer zoom for city streets
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-                    ),
-                  ),
+          FlutterMap(
+            options: MapOptions(
+              initialCenter: activeCenter,
+              initialZoom: 16.5,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                subdomains: const ['a', 'b', 'c'],
+                userAgentPackageName: 'com.hullugebeya.app',
+                retinaMode: true,
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                      point: activeCenter,
+                      width: 50,
+                      height: 50,
+                      child: Icon(Icons.location_on,
+                          color: myRealPosition == null
+                              ? Colors.grey
+                              : Colors.blue,
+                          size: 45)),
+                  Marker(
+                      point: bajajPosition,
+                      width: 50,
+                      height: 50,
+                      child: const Icon(Icons.local_taxi,
+                          color: Colors.teal, size: 40)),
+                ],
+              ),
+            ],
+          ),
+
+          // LOADING OVERLAY (Only shows if we have NO position at all)
+          if (myRealPosition == null)
+            Positioned(
+              top: 50,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black12, blurRadius: 5)
+                    ]),
+                child: const Row(
                   children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      subdomains: const ['a', 'b', 'c'],
-                      userAgentPackageName: 'com.hullugebeya.app',
-                      retinaMode: true,
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        // BLUE ICON: Always at your real coordinates
-                        Marker(
-                            point: myRealPosition!,
-                            width: 50,
-                            height: 50,
-                            child: const Icon(Icons.location_on,
-                                color: Colors.blue, size: 45)),
-                        Marker(
-                            point: bajajPosition,
-                            width: 50,
-                            height: 50,
-                            child: const Icon(Icons.local_taxi,
-                                color: Colors.teal, size: 40)),
-                      ],
-                    ),
+                    SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 15),
+                    Text("Acquiring precise GPS..."),
                   ],
                 ),
+              ),
+            ),
 
-          // DRAGGABLE MENU
           tripStatus == "idle"
               ? DraggableScrollableSheet(
                   initialChildSize: 0.35,
