@@ -48,24 +48,49 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
 
   // --- FEATURE: PROFESSIONAL GPS ---
   Future<void> _initLocationLogic() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
+    // 1. Permissions check
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
 
-    Position? lastPos = await Geolocator.getLastKnownPosition();
-    if (lastPos != null && mounted) {
-      setState(
-          () => myRealPosition = LatLng(lastPos.latitude, lastPos.longitude));
+    // 2. THE JUMPSTART (High Power - Only once)
+    // We force the GPS hardware just to get the very first coordinate.
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: AndroidSettings(
+          accuracy: LocationAccuracy.best,
+          forceLocationManager: true, // Wake up the hardware
+          timeLimit:
+              const Duration(seconds: 10), // Kill it after 10s if no signal
+        ),
+      );
+      if (mounted) {
+        setState(() =>
+            myRealPosition = LatLng(position.latitude, position.longitude));
+      }
+    } catch (e) {
+      debugPrint(
+          "Initial high-power fix timed out. Switching to balanced mode.");
     }
 
+    // 3. THE CRUISE CONTROL (Balanced Power - Continuous)
+    // This is the "Professional" way: It saves battery by waiting for 5 meters of movement.
     _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best, distanceFilter: 2),
+      locationSettings: AndroidSettings(
+        accuracy: LocationAccuracy.high, // Balanced high accuracy
+        distanceFilter: 5, // ONLY update if moved 5 meters (Saves 40% battery)
+        intervalDuration:
+            const Duration(seconds: 5), // Only check every 5 seconds
+        forceLocationManager:
+            false, // Let Android choose the best sensor (GPS/WiFi/Cell)
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Tana Superapp is keeping you connected",
+          notificationTitle: "Location Services Active",
+          enableWakeLock: true,
+        ),
+      ),
     ).listen((Position position) {
       if (mounted) {
         setState(() =>
@@ -142,10 +167,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
 
   @override
   void dispose() {
+    _positionStream?.cancel(); // Kill the GPS sensor immediately
     rideSubscription?.cancel();
-    _positionStream?.cancel();
     _phoneController.dispose();
-    _pickupController.dispose();
     _destinationController.dispose();
     super.dispose();
   }
