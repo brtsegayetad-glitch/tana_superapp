@@ -9,6 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
+import 'location_data.dart'; // Import your new external data file
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -20,46 +21,6 @@ class BajajPassengerPage extends StatefulWidget {
 class _BajajPassengerPageState extends State<BajajPassengerPage> {
   // --- AUTH PROFILE DATA ---
   String _userName = "Passenger";
-
-  // --- BAHIR DAR LOCAL DIRECTORY ---
-  final List<Map<String, dynamic>> bahirDarDirectory = [
-    {
-      "name": "Kulkual Meda School",
-      "nameAmh": "ኩልኳል ምዳ ትምህርት ቤት",
-      "lat": 11.5830,
-      "lng": 37.3750
-    },
-    {
-      "name": "Tana Shore (Port)",
-      "nameAmh": "ጣና ዳር (ወደብ)",
-      "lat": 11.6030,
-      "lng": 37.3880
-    },
-    {
-      "name": "St. George Church",
-      "nameAmh": "ቅዱስ ጊዮርጊስ ቤተክርስቲያን",
-      "lat": 11.5990,
-      "lng": 37.3915
-    },
-    {
-      "name": "Bahir Dar University (Peda)",
-      "nameAmh": "ባሕር ዳር ዩኒቨርሲቲ (ፔዳ)",
-      "lat": 11.5900,
-      "lng": 37.3970
-    },
-    {
-      "name": "Felege Hiwot Hospital",
-      "nameAmh": "ፈለገ ሕይወት ሆስፒታል",
-      "lat": 11.5815,
-      "lng": 37.3910
-    },
-    {
-      "name": "Bus Station (Menehariya)",
-      "nameAmh": "መነሃሪያ",
-      "lat": 11.5750,
-      "lng": 37.3900
-    },
-  ];
 
   // --- APP STATE ---
   String tripStatus = "idle";
@@ -114,11 +75,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     }
   }
 
-  // --- UPDATED PRICE LOGIC WITH SAFETY FALLBACKS ---
   Future<void> _calculateRoadPrice(LatLng destination) async {
-    // Fallback: If GPS is null (Web or slow lock), start from Bahir Dar Center
     LatLng startPos = myRealPosition ?? bahirDarCenter;
-
     setState(() => _isCalculatingPrice = true);
 
     try {
@@ -139,7 +97,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
             .doc('pricing')
             .get();
 
-        // Fallback: Use default 50/15 if Firestore is not yet configured
         double base = 50.0;
         double perKm = 15.0;
         if (settings.exists) {
@@ -152,13 +109,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           _estimatedPrice = (base + (km * perKm)).round();
           _isCalculatingPrice = false;
         });
-      } else {
-        throw Exception("Server Error");
       }
     } catch (e) {
-      debugPrint("Price Error: $e");
-      // Safety: Set a flat price of 50 ETB if OSRM or GPS fails
-      // This ensures the "REQUEST BAJAJ" button becomes clickable.
       setState(() {
         _calculatedKm = 2.0;
         _estimatedPrice = 50;
@@ -173,7 +125,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
-
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.best, distanceFilter: 10),
@@ -263,6 +214,29 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                       point: bajajPosition,
                       child: const Icon(Icons.local_taxi,
                           color: Colors.teal, size: 35)),
+
+                // Labels for Schools from location_data.dart
+                ...masterDirectory
+                    .map((loc) => Marker(
+                          point: loc.coordinates,
+                          width: 100,
+                          height: 60,
+                          child: Column(
+                            children: [
+                              const Icon(Icons.school,
+                                  color: Colors.orange, size: 18),
+                              Text(
+                                loc.nameAmh,
+                                style: const TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                    backgroundColor: Colors.white70),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ))
+                    .toList(),
               ]),
             ],
           ),
@@ -296,11 +270,19 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 if (v.isEmpty) {
                   setState(() => _filteredPlaces = []);
                 } else {
-                  setState(() => _filteredPlaces = bahirDarDirectory
-                      .where((p) =>
-                          p["name"].toLowerCase().contains(v.toLowerCase()) ||
-                          p["nameAmh"].contains(v))
-                      .toList());
+                  setState(() {
+                    _filteredPlaces = masterDirectory
+                        .where((p) =>
+                            p.name.toLowerCase().contains(v.toLowerCase()) ||
+                            p.nameAmh.contains(v))
+                        .map((p) => {
+                              "name": p.name,
+                              "nameAmh": p.nameAmh,
+                              "lat": p.coordinates.latitude,
+                              "lng": p.coordinates.longitude
+                            })
+                        .toList();
+                  });
                 }
               }),
               if (_filteredPlaces.isNotEmpty)
