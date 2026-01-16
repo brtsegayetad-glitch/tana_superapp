@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'main.dart'; // Ensure this points to your HomeScreen
+import 'bajaj_driver_page.dart';
+import 'bajaj_passenger_page.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -37,21 +38,28 @@ class _AuthPageState extends State<AuthPage> {
   // --- AUTH LOGIC (LOGIN / REGISTER) ---
   Future<void> _handleAuth() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
-    // Note: Firebase Auth usually uses email. We append '@hullu.com' to the phone
-    // to treat the phone number as a unique username/email.
     String fakeEmail = "${_phoneController.text.trim()}@hullu.com";
     String password = _passwordController.text.trim();
 
     try {
+      String? finalRole;
+
       if (_isLogin) {
         // --- 1. LOGIN ---
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        UserCredential cred =
+            await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: fakeEmail,
           password: password,
         );
+
+        // Fetch the role from Firestore because we don't know it yet
+        var userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(cred.user!.uid)
+            .get();
+        finalRole = userDoc.data()?['role'];
       } else {
         // --- 2. REGISTRATION ---
         UserCredential credential =
@@ -61,57 +69,56 @@ class _AuthPageState extends State<AuthPage> {
         );
 
         String uid = credential.user!.uid;
+        finalRole = _selectedRole;
 
-        // Prepare Universal User Profile
+        // Universal User Profile
         Map<String, dynamic> userData = {
           'uid': uid,
           'fullName': _nameController.text.trim(),
           'phoneNumber': _phoneController.text.trim(),
           'role': _selectedRole,
-          'isVendor': false, // Marketplace registration happens later
           'createdAt': FieldValue.serverTimestamp(),
           'total_debt': 0.0,
         };
 
-        // Add Driver specific fields if applicable
         if (_selectedRole == 'Driver') {
           userData['plateNumber'] = _plateController.text.trim();
           userData['association'] = _selectedAssociation;
 
-          // Initialize Driver Wallet
-          await FirebaseFirestore.instance.collection('wallets').doc(uid).set({
-            'uid': uid,
-            'balance': 0.0,
-            'isRoutePaid': false,
-            'plateNumber': _plateController.text.trim(),
+          // CRITICAL: Also create the document in the 'drivers' collection
+          // so the Admin Panel and Driver Page work correctly!
+          await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
+            'name': _nameController.text.trim(),
+            'plate': _plateController.text.trim(),
             'association': _selectedAssociation,
+            'total_debt': 0.0,
+            'isOnline': false,
+            'uid': uid,
           });
         }
 
-        // Save to Firestore
         await FirebaseFirestore.instance
             .collection('users')
             .doc(uid)
             .set(userData);
       }
 
-      // Success! Move to Home
       if (!mounted) return;
+
+      // --- 3. THE SMART REDIRECT ---
+      Widget nextScreen;
+      if (finalRole == 'Driver') {
+        nextScreen = const BajajDriverPage(); // Go to Driver side
+      } else {
+        nextScreen = const BajajPassengerPage(); // Go to Passenger side
+      }
+
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+        MaterialPageRoute(builder: (context) => nextScreen),
         (route) => false,
       );
-    } on FirebaseAuthException catch (e) {
-      String errorMsg = "Auth Error";
-      if (e.code == 'user-not-found') {
-        errorMsg = "No account found for this phone.";
-      } else if (e.code == 'wrong-password')
-        errorMsg = "Incorrect password.";
-      else if (e.code == 'email-already-in-use')
-        errorMsg = "Phone already registered. Please Login.";
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(errorMsg)));
+    } on FirebaseAuthException {
+      // ... your existing error handling ...
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

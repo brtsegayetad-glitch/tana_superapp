@@ -27,6 +27,20 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     super.dispose();
   }
 
+  // Helper for Row layout in reports
+  Widget _row(String label, String val, {Color? color, bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label),
+        Text(val,
+            style: TextStyle(
+                color: color,
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal))
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -63,14 +77,11 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        }
-
         var docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
+        if (docs.isEmpty)
           return const Center(child: Text("No pending deposits."));
-        }
 
         return ListView.builder(
           itemCount: docs.length,
@@ -98,29 +109,21 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
-  // --- 2. RIDE DASHBOARD (PRICE SETTINGS + SEARCH + DEBT) ---
+  // --- 2. RIDE DASHBOARD (SYNCED WITH OSRM) ---
   Widget _buildRideHailingDashboard() {
     return ListView(
       padding: const EdgeInsets.all(15),
       children: [
-        // A. SEARCH BAR
         TextField(
           decoration: InputDecoration(
-            hintText: "Search Driver by Name or Plate...",
+            hintText: "Search Driver...",
             prefixIcon: const Icon(Icons.search),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: Colors.white,
           ),
-          onChanged: (value) {
-            setState(() {
-              _searchQuery = value.toLowerCase();
-            });
-          },
+          onChanged: (value) =>
+              setState(() => _searchQuery = value.toLowerCase()),
         ),
         const SizedBox(height: 20),
-
-        // B. CITY PRICE SETTINGS (Restored)
         const Text("CITY PRICE SETTINGS (BAHIR DAR)",
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
         const SizedBox(height: 10),
@@ -130,62 +133,46 @@ class _AdminPanelPageState extends State<AdminPanelPage>
               .doc('pricing')
               .snapshots(),
           builder: (context, snapshot) {
-            // Default values if Firebase is empty
             double base = 50.0;
             double perKm = 15.0;
-
             if (snapshot.hasData && snapshot.data!.exists) {
               var prices = snapshot.data!.data() as Map<String, dynamic>;
-              base = (prices['base_price'] ?? 50.0).toDouble();
+              base = (prices['base_fare'] ?? 50.0).toDouble();
               perKm = (prices['per_km'] ?? 15.0).toDouble();
             }
-
             return Card(
               color: Colors.blue.shade50,
               child: ListTile(
                 leading: const Icon(Icons.settings_suggest, color: Colors.blue),
                 title: Text("Base: $base ETB | Per KM: $perKm ETB"),
-                subtitle: const Text("Tap to change city pricing"),
                 trailing: const Icon(Icons.edit, color: Colors.blue),
                 onTap: () => _showPriceEditDialog(base, perKm),
               ),
             );
           },
         ),
-
         const SizedBox(height: 30),
-        const Text("DRIVER COMMISSION BALANCES",
+        const Text("DRIVER DEBT (10%)",
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
         const Divider(),
-
-        // C. DRIVER LIST WITH SEARCH & REMINDERS
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance.collection('drivers').snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData) return const SizedBox();
-
+            // FILTER LOGIC: Updates as you type in the search box
             var filteredDocs = snapshot.data!.docs.where((doc) {
               var driver = doc.data() as Map<String, dynamic>;
               String name = (driver['name'] ?? "").toString().toLowerCase();
-              String plate = (driver['plate'] ?? "").toString().toLowerCase();
-              return name.contains(_searchQuery) ||
-                  plate.contains(_searchQuery);
+              return name.contains(_searchQuery);
             }).toList();
 
             return Column(
               children: filteredDocs.map((doc) {
                 var driver = doc.data() as Map<String, dynamic>;
                 double debt = (driver['total_debt'] ?? 0.0).toDouble();
-                String driverId = doc.id;
-                String driverName = driver['name'] ?? "Unknown";
-
                 return Card(
                   child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: debt > 300 ? Colors.red : Colors.teal,
-                      child: const Icon(Icons.person, color: Colors.white),
-                    ),
-                    title: Text(driverName),
+                    title: Text(driver['name'] ?? "Unknown"),
                     subtitle: Text("Owes: ${debt.toStringAsFixed(2)} ETB"),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -194,10 +181,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                           icon: const Icon(Icons.notifications_active,
                               color: Colors.orange),
                           onPressed: () =>
-                              _sendDebtReminder(driverId, driverName, debt),
-                          tooltip: "Send Reminder",
+                              _sendDebtReminder(doc.id, driver['name'], debt),
                         ),
-                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: () => _clearDriverDebt(doc.id),
                           style: ElevatedButton.styleFrom(
@@ -213,37 +198,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             );
           },
         ),
-
-        const SizedBox(height: 30),
-        const Text("RECENT RIDE HISTORY",
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        const Divider(),
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('ride_history')
-              .orderBy('timestamp', descending: true)
-              .limit(10)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return Column(
-              children: snapshot.data!.docs.map((doc) {
-                var data = doc.data() as Map<String, dynamic>;
-                return ListTile(
-                  leading: const Icon(Icons.history, size: 20),
-                  title: Text("${data['driver_name'] ?? 'Driver'}"),
-                  subtitle: Text("Fare: ${data['fare']} ETB"),
-                  trailing: Text(
-                      "${data['commission_owed'] ?? data['commission'] ?? 0} ETB",
-                      style: const TextStyle(
-                          color: Colors.red, fontWeight: FontWeight.bold)),
-                );
-              }).toList(),
-            );
-          },
-        ),
       ],
     );
   }
@@ -252,6 +206,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   Widget _buildDashboardTab() {
     DateTime now = DateTime.now();
     DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
+
+    // FORMAT DATE: Shows "Jan 1 - Jan 7, 2026"
     String dateRange =
         "${DateFormat('MMM d').format(sevenDaysAgo)} - ${DateFormat('MMM d, yyyy').format(now)}";
 
@@ -261,9 +217,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        }
 
         Map<String, Map<String, dynamic>> associationStats = {};
         for (var doc in snapshot.data!.docs) {
@@ -286,44 +241,40 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             Container(
                 padding: const EdgeInsets.all(12),
                 color: Colors.blue.shade50,
-                child: Text("Reporting Period: $dateRange",
+                child: Text("Period: $dateRange",
                     style: const TextStyle(fontWeight: FontWeight.bold))),
-            const SizedBox(height: 10),
             ...associationStats.entries.map((e) {
               double total = e.value['total'];
               double commission = total * 0.05;
               double net = total - commission;
               return Card(
-                elevation: 3,
-                margin: const EdgeInsets.only(bottom: 15),
+                margin: const EdgeInsets.only(top: 15),
                 child: Padding(
                   padding: const EdgeInsets.all(15),
                   child: Column(
                     children: [
                       Text(e.key,
                           style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue)),
+                              fontWeight: FontWeight.bold, fontSize: 18)),
                       const Divider(),
                       _row("Total Collected:",
                           "${total.toStringAsFixed(2)} ETB"),
                       _row("Hullugebeya 5%:",
                           "${commission.toStringAsFixed(2)} ETB",
                           color: Colors.red),
-                      _row("Pay to Assoc:", "${net.toStringAsFixed(2)} ETB",
+                      _row("Net to Assoc:", "${net.toStringAsFixed(2)} ETB",
                           color: Colors.green, bold: true),
                       const SizedBox(height: 10),
                       ElevatedButton.icon(
-                        icon: const Icon(Icons.copy),
-                        label: const Text("COPY WEEKLY REPORT"),
+                        icon: const Icon(Icons.copy, size: 16),
                         onPressed: () {
-                          String report =
-                              "📊 *HULLUGEBEYA REPORT*\nAssoc: ${e.key}\nPeriod: $dateRange\nTotal: $total ETB\nNet to Association: $net ETB";
-                          Clipboard.setData(ClipboardData(text: report));
+                          Clipboard.setData(ClipboardData(
+                              text:
+                                  "Assoc: ${e.key}, Total: $total, Net: $net"));
                           ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text("Report Copied!")));
                         },
+                        label: const Text("COPY REPORT"),
                       )
                     ],
                   ),
@@ -337,82 +288,44 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   }
 
   // --- ACTIONS & DIALOGS ---
-
   void _showPriceEditDialog(double currentBase, double currentPerKm) {
     TextEditingController baseCtrl =
         TextEditingController(text: currentBase.toString());
     TextEditingController kmCtrl =
         TextEditingController(text: currentPerKm.toString());
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Update City Pricing"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: baseCtrl,
-                decoration:
-                    const InputDecoration(labelText: "Base Price (ETB)"),
-                keyboardType: TextInputType.number),
-            TextField(
-                controller: kmCtrl,
-                decoration:
-                    const InputDecoration(labelText: "Price Per KM (ETB)"),
-                keyboardType: TextInputType.number),
-          ],
-        ),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: baseCtrl,
+              decoration: const InputDecoration(labelText: "Base Fare"),
+              keyboardType: TextInputType.number),
+          TextField(
+              controller: kmCtrl,
+              decoration: const InputDecoration(labelText: "Per KM"),
+              keyboardType: TextInputType.number),
+        ]),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text("CANCEL")),
           ElevatedButton(
-            onPressed: () async {
-              await FirebaseFirestore.instance
-                  .collection('settings')
-                  .doc('pricing')
-                  .set({
-                'base_price': double.parse(baseCtrl.text),
-                'per_km': double.parse(kmCtrl.text),
-              });
-              if (!mounted) return;
-              Navigator.pop(context);
-            },
-            child: const Text("SAVE CHANGES"),
-          ),
+              onPressed: () async {
+                await FirebaseFirestore.instance
+                    .collection('settings')
+                    .doc('pricing')
+                    .set({
+                  'base_fare': double.parse(baseCtrl.text),
+                  'per_km': double.parse(kmCtrl.text),
+                });
+                Navigator.pop(context);
+              },
+              child: const Text("SAVE")),
         ],
       ),
     );
-  }
-
-  Future<void> _sendDebtReminder(
-      String driverId, String name, double amount) async {
-    try {
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'target_driver_id': driverId,
-        'title': "Payment Reminder",
-        'message':
-            "Hello $name, your debt is ${amount.toStringAsFixed(2)} ETB. Please pay soon.",
-        'timestamp': FieldValue.serverTimestamp(),
-        'isRead': false,
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Reminder sent!"), backgroundColor: Colors.orange));
-    } catch (e) {
-      debugPrint("Error: $e");
-    }
-  }
-
-  Future<void> _clearDriverDebt(String driverId) async {
-    await FirebaseFirestore.instance
-        .collection('drivers')
-        .doc(driverId)
-        .update({'total_debt': 0.0});
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text("Debt Paid!")));
   }
 
   Future<void> _approveDeposit(String reqId, Map<String, dynamic> data) async {
@@ -431,21 +344,22 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       'timestamp': FieldValue.serverTimestamp()
     });
     await batch.commit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text("Approved!")));
   }
 
-  Widget _row(String label, String val, {Color? color, bool bold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label),
-        Text(val,
-            style: TextStyle(
-                color: color,
-                fontWeight: bold ? FontWeight.bold : FontWeight.normal))
-      ]),
-    );
+  Future<void> _sendDebtReminder(String id, String name, double debt) async {
+    await FirebaseFirestore.instance.collection('notifications').add({
+      'target_driver_id': id,
+      'title': "Debt Reminder",
+      'message': "Hello $name, you owe $debt ETB.",
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _clearDriverDebt(String driverId) async {
+    await FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(driverId)
+        .update({'total_debt': 0.0});
   }
 }
