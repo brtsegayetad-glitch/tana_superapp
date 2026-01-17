@@ -15,7 +15,12 @@ import 'admin_panel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // This is the correct way to start Firebase using your options file
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const TanaSuperApp());
 }
 

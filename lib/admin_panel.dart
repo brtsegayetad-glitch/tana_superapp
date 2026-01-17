@@ -15,15 +15,30 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   late TabController _tabController;
   String _searchQuery = "";
 
+  // Controllers for Dispatch
+  final TextEditingController _phoneController = TextEditingController();
+  String _selectedHotspot = "Kebele 14 (Stadium)";
+  final List<String> _bahirDarHotspots = [
+    "Kebele 14 (Stadium)",
+    "Papyrus Hotel",
+    "Gamby Hospital",
+    "Abay Mado",
+    "Bus Station (Teras)",
+    "Piazza / Tele",
+    "Poly / St. George"
+  ];
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // Updated length to 4 for the new Dispatch tab
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -55,6 +70,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             Tab(text: "Approvals", icon: Icon(Icons.pending_actions)),
             Tab(text: "Ride (10%)", icon: Icon(Icons.local_taxi)),
             Tab(text: "Route (5%)", icon: Icon(Icons.route)),
+            Tab(text: "Dispatch", icon: Icon(Icons.phone_forwarded)), // New Tab
           ],
         ),
       ),
@@ -64,8 +80,64 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           _buildApprovalsTab(),
           _buildRideHailingDashboard(),
           _buildDashboardTab(),
+          _buildManualDispatchTab(), // New UI
         ],
       ),
+    );
+  }
+
+  // --- 4. NEW: MANUAL DISPATCH TAB ---
+  Widget _buildManualDispatchTab() {
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text("CALL CENTER DISPATCH",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text("Manual entry for phone-call passengers",
+            style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 20),
+        Card(
+          elevation: 4,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(
+                    labelText: "Passenger Phone Number",
+                    prefixIcon: Icon(Icons.phone),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 20),
+                DropdownButtonFormField<String>(
+                  value: _selectedHotspot,
+                  decoration: const InputDecoration(
+                    labelText: "Pickup Hotspot (Bahir Dar)",
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _bahirDarHotspots.map((String spot) {
+                    return DropdownMenuItem(value: spot, child: Text(spot));
+                  }).toList(),
+                  onChanged: (val) => setState(() => _selectedHotspot = val!),
+                ),
+                const SizedBox(height: 30),
+                ElevatedButton(
+                  onPressed: _dispatchRequest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    minimumSize: const Size(double.infinity, 55),
+                  ),
+                  child: const Text("SEND TO NEARBY DRIVERS",
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -159,7 +231,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           stream: FirebaseFirestore.instance.collection('drivers').snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData) return const SizedBox();
-            // FILTER LOGIC: Updates as you type in the search box
             var filteredDocs = snapshot.data!.docs.where((doc) {
               var driver = doc.data() as Map<String, dynamic>;
               String name = (driver['name'] ?? "").toString().toLowerCase();
@@ -206,8 +277,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   Widget _buildDashboardTab() {
     DateTime now = DateTime.now();
     DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
-
-    // FORMAT DATE: Shows "Jan 1 - Jan 7, 2026"
     String dateRange =
         "${DateFormat('MMM d').format(sevenDaysAgo)} - ${DateFormat('MMM d, yyyy').format(now)}";
 
@@ -288,6 +357,28 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   }
 
   // --- ACTIONS & DIALOGS ---
+
+  // THIS IS THE NEW DISPATCH LOGIC
+  Future<void> _dispatchRequest() async {
+    if (_phoneController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please enter passenger phone")));
+      return;
+    }
+
+    await FirebaseFirestore.instance.collection('ride_requests').add({
+      'passenger_phone': _phoneController.text,
+      'pickup_location': _selectedHotspot,
+      'status': 'pending',
+      'timestamp': FieldValue.serverTimestamp(),
+      'type': 'call_center'
+    });
+
+    _phoneController.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Request sent for $_selectedHotspot!")));
+  }
+
   void _showPriceEditDialog(double currentBase, double currentPerKm) {
     TextEditingController baseCtrl =
         TextEditingController(text: currentBase.toString());

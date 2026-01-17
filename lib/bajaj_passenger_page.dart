@@ -9,7 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
-import 'location_data.dart'; // Import your new external data file
+import 'location_data.dart';
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -21,6 +21,9 @@ class BajajPassengerPage extends StatefulWidget {
 class _BajajPassengerPageState extends State<BajajPassengerPage> {
   // --- AUTH PROFILE DATA ---
   String _userName = "Passenger";
+
+  // --- MAP STATE ---
+  double _currentZoom = 15.0;
 
   // --- APP STATE ---
   String tripStatus = "idle";
@@ -68,6 +71,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     }
   }
 
+  // Restored: This is the function the error was talking about!
   Future<void> _makePhoneCall(String phoneNumber) async {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
@@ -186,6 +190,53 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     });
   }
 
+  Future<void> _performSmartSearch(String v) async {
+    if (v.isEmpty) {
+      setState(() => _filteredPlaces = []);
+      return;
+    }
+
+    List<Map<String, dynamic>> localMatches = masterDirectory
+        .where((p) =>
+            p.name.toLowerCase().contains(v.toLowerCase()) ||
+            p.nameAmh.contains(v))
+        .map((p) => {
+              "nameAmh": p.nameAmh,
+              "lat": p.coordinates.latitude,
+              "lng": p.coordinates.longitude,
+              "sub": "Local Place"
+            })
+        .toList();
+
+    setState(() => _filteredPlaces = localMatches);
+
+    if (v.length > 3) {
+      final url = Uri.parse(
+          "https://nominatim.openstreetmap.org/search?q=$v, Bahir Dar&format=json&limit=3");
+      try {
+        final response =
+            await http.get(url, headers: {'User-Agent': 'BahirDarSuperApp'});
+        if (response.statusCode == 200) {
+          List data = json.decode(response.body);
+          List<Map<String, dynamic>> webMatches = data.map((item) {
+            return {
+              "nameAmh": item['display_name'].split(',')[0],
+              "lat": double.parse(item['lat']),
+              "lng": double.parse(item['lon']),
+              "sub": "Map Result"
+            };
+          }).toList();
+
+          setState(() {
+            _filteredPlaces = [...localMatches, ...webMatches];
+          });
+        }
+      } catch (e) {
+        debugPrint("Web search error: $e");
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final LatLng activeCenter = myRealPosition ?? bahirDarCenter;
@@ -194,50 +245,78 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       body: Stack(
         children: [
           FlutterMap(
-            options: MapOptions(initialCenter: activeCenter, initialZoom: 15),
+            options: MapOptions(
+              initialCenter: activeCenter,
+              initialZoom: 15,
+              onPositionChanged: (position, hasGesture) {
+                setState(() {
+                  _currentZoom = position.zoom;
+                });
+              },
+            ),
             children: [
               TileLayer(
-                  urlTemplate:
-                      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
-              MarkerLayer(markers: [
-                Marker(
+                urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
                     point: activeCenter,
                     child: const Icon(Icons.person_pin_circle,
-                        color: Colors.blue, size: 40)),
-                if (_selectedDestination != null)
-                  Marker(
+                        color: Colors.blue, size: 40),
+                  ),
+                  if (_selectedDestination != null)
+                    Marker(
                       point: _selectedDestination!,
                       child: const Icon(Icons.location_on,
-                          color: Colors.red, size: 40)),
-                if (tripStatus != "idle")
-                  Marker(
+                          color: Colors.red, size: 40),
+                    ),
+                  if (tripStatus != "idle")
+                    Marker(
                       point: bajajPosition,
                       child: const Icon(Icons.local_taxi,
-                          color: Colors.teal, size: 35)),
-
-                // Labels for Schools from location_data.dart
-                ...masterDirectory
-                    .map((loc) => Marker(
-                          point: loc.coordinates,
-                          width: 100,
-                          height: 60,
-                          child: Column(
-                            children: [
-                              const Icon(Icons.school,
-                                  color: Colors.orange, size: 18),
-                              Text(
+                          color: Colors.teal, size: 35),
+                    ),
+                  ...masterDirectory.map((loc) {
+                    return Marker(
+                      point: loc.coordinates,
+                      width: 120,
+                      height: 80,
+                      child: Column(
+                        children: [
+                          Icon(
+                            loc.category == "Church"
+                                ? Icons.church
+                                : Icons.school,
+                            color: loc.category == "Church"
+                                ? Colors.purple
+                                : Colors.orange,
+                            size: 20,
+                          ),
+                          if (_currentZoom > 16.0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Text(
                                 loc.nameAmh,
                                 style: const TextStyle(
-                                    fontSize: 8,
+                                    fontSize: 10,
                                     fontWeight: FontWeight.bold,
-                                    backgroundColor: Colors.white70),
+                                    color: Colors.black),
                                 textAlign: TextAlign.center,
                               ),
-                            ],
-                          ),
-                        ))
-                    .toList(),
-              ]),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
             ],
           ),
           tripStatus == "idle" ? _buildRequestSheet() : _buildLiveRideSheet(),
@@ -264,27 +343,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                   _phoneController, Icons.phone, "Phone (Auto)", (v) {},
                   readOnly: true),
               const SizedBox(height: 15),
-              _buildTextField(
-                  _destinationController, Icons.search, "Where to? (e.g. ኩልኳል)",
-                  (v) {
-                if (v.isEmpty) {
-                  setState(() => _filteredPlaces = []);
-                } else {
-                  setState(() {
-                    _filteredPlaces = masterDirectory
-                        .where((p) =>
-                            p.name.toLowerCase().contains(v.toLowerCase()) ||
-                            p.nameAmh.contains(v))
-                        .map((p) => {
-                              "name": p.name,
-                              "nameAmh": p.nameAmh,
-                              "lat": p.coordinates.latitude,
-                              "lng": p.coordinates.longitude
-                            })
-                        .toList();
-                  });
-                }
-              }),
+              _buildTextField(_destinationController, Icons.search,
+                  "Where to? (e.g. Gamby)", (v) => _performSmartSearch(v)),
               if (_filteredPlaces.isNotEmpty)
                 Container(
                   height: 200,
@@ -295,7 +355,13 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                   child: ListView.builder(
                     itemCount: _filteredPlaces.length,
                     itemBuilder: (context, i) => ListTile(
+                      leading: Icon(
+                          _filteredPlaces[i]['sub'] == "Local Place"
+                              ? Icons.star
+                              : Icons.public,
+                          size: 18),
                       title: Text(_filteredPlaces[i]['nameAmh']),
+                      subtitle: Text(_filteredPlaces[i]['sub']),
                       onTap: () {
                         setState(() {
                           _destinationController.text =
@@ -343,6 +409,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                         color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 12),
+              // RESTORED: THE CALL BUTTON
               OutlinedButton.icon(
                 onPressed: () => _makePhoneCall("8000"),
                 icon: const Icon(Icons.phone_callback, color: Colors.green),
