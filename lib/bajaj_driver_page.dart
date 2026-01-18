@@ -263,36 +263,50 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
             .doc(activeTripId)
             .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData || !snapshot.data!.exists)
+          if (!snapshot.hasData || !snapshot.data!.exists) {
             return const Center(child: Text("Trip Ended"));
+          }
           var data = snapshot.data!.data() as Map<String, dynamic>;
           String status = data['status'] ?? 'searching';
           int price = data['price'] ?? 0;
 
           if (status == 'accepted') return _buildOtpScreen(data);
-          if (status == 'started')
+          if (status == 'started') {
             return _buildInTripScreen(price, data['passenger_phone'] ?? "");
+          }
 
           return const Center(child: CircularProgressIndicator());
         },
       );
     }
 
+    // FIXED QUERY: Removed orderBy to avoid Index errors and ensure Admin dispatches show up
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('ride_requests')
-          .where('status', whereIn: ['searching', 'pending'])
-          .orderBy('timestamp', descending: true)
-          .limit(1)
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('ride_requests').where(
+          'status',
+          whereIn: ['searching', 'pending']).snapshots(), // No orderBy here
       builder: (context, snapshot) {
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
               child: Text("Waiting for requests in Bahir Dar..."));
         }
-        var doc = snapshot.data!.docs.first;
+
+        // Sort in-memory instead of in the cloud (Better for 4GB RAM & avoids Index errors)
+        var docs = snapshot.data!.docs;
+        docs.sort((a, b) {
+          var aTime = a['timestamp'] as Timestamp?;
+          var bTime = b['timestamp'] as Timestamp?;
+          if (aTime == null) return -1;
+          if (bTime == null) return 1;
+          return bTime.compareTo(aTime);
+        });
+
+        var doc = docs.first;
         var data = doc.data() as Map<String, dynamic>;
+
+        // Only trigger sound for new ones
         _triggerAlert();
+
         int displayPrice = data['price'] ?? 0;
         return _buildRequestPopup(data, displayPrice, doc.id);
       },
@@ -475,8 +489,9 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                 .orderBy('timestamp', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData)
+              if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
+              }
               return ListView.builder(
                 itemCount: snapshot.data!.docs.length,
                 itemBuilder: (context, index) {

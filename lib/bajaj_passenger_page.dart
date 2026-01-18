@@ -314,7 +314,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                         ],
                       ),
                     );
-                  }).toList(),
+                  }),
                 ],
               ),
             ],

@@ -113,7 +113,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                 ),
                 const SizedBox(height: 20),
                 DropdownButtonFormField<String>(
-                  value: _selectedHotspot,
+                  initialValue: _selectedHotspot,
                   decoration: const InputDecoration(
                     labelText: "Pickup Hotspot (Bahir Dar)",
                     border: OutlineInputBorder(),
@@ -149,11 +149,13 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         var docs = snapshot.data!.docs;
-        if (docs.isEmpty)
+        if (docs.isEmpty) {
           return const Center(child: Text("No pending deposits."));
+        }
 
         return ListView.builder(
           itemCount: docs.length,
@@ -286,8 +288,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
 
         Map<String, Map<String, dynamic>> associationStats = {};
         for (var doc in snapshot.data!.docs) {
