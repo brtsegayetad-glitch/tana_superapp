@@ -1,65 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
-import 'admin_panel.dart';
-import 'registration_page.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart'; // ለ Clipboard ኮፒ ስራ አስፈላጊ ነው
+import 'dart:io';
 
 final Map<String, Map<String, String>> localizedText = {
   'en': {
-    'title': 'Tana Wallet',
-    'balance': 'Balance',
-    'step1': 'STEP 1: DEPOSIT FUNDS (Telebirr or Bank)',
-    'pay_to': 'Pay to (Tana Wallet):',
-    'bank_details':
-        'CBE: 1000312990974\nBOA: 93150996\nName: Biruk Tsegaye Tadesse',
-    'step2': 'STEP 2: ENTER DETAILS',
+    'title': 'Route Payment',
+    'step1': 'STEP 1: PAY ASSOCIATION DIRECTLY',
+    'pay_to': 'Pay via Telebirr:',
+    'bank_details': 'Bank Transfer Details',
+    'copy_hint': 'Tap to copy account info',
+    'step2': 'STEP 2: SUBMIT RECEIPT INFO',
+    'pick_img': 'TAKE PHOTO / UPLOAD RECEIPT',
     'amount': 'Amount Sent (Birr)',
     'txid': 'Reference / Transaction ID',
     'submit': 'SUBMIT FOR APPROVAL',
     'permit': 'PERMIT ACTIVE',
     'pay_req': 'PAYMENT REQUIRED',
     'due': 'Total Due',
-    'history': 'Recent Activity',
-    'pay_btn': 'PAY',
+    'pay_btn': 'PAY NOW (TELEBIRR)',
     'receipt_btn': 'SHOW TRAFFIC PERMIT',
-    'receipt_header': 'TANA SUPERAPP - DIGITAL RECEIPT',
+    'receipt_header': 'HULLUGEBEYA - DIGITAL PERMIT',
     'receipt_verified': 'SERVICE ACCESS VERIFIED',
-    'receipt_provider': 'Provider:',
-    'receipt_name': 'Bajaj Association Name:',
+    'receipt_name': 'Driver Name:',
     'receipt_plate': 'Plate Number:',
-    'receipt_date': 'Payment Date:',
+    'receipt_nid': 'National ID:',
     'receipt_status': 'Status:',
     'receipt_active': 'ACTIVE ✅',
-    'receipt_footer':
-        'This receipt confirms the driver is a verified member of the Tana Digital Platform.',
     'close': 'CLOSE',
   },
   'am': {
-    'title': 'ጣና ዋሌት',
-    'balance': 'ሒሳብ',
-    'step1': 'ደረጃ 1፡ ገንዘብ ያስገቡ (በቴሌብር ወይም በባንክ)',
-    'pay_to': 'ክፍያ የሚፈጽሙበት ቁጥር፡',
-    'bank_details': 'CBE: 1000312990974\nአቢሲኒያ፡ 93150996\nስም፡ ብሩክ ፀጋዬ ታደሰ',
-    'step2': 'ደረጃ 2፡ ዝርዝር መረጃ ያስገቡ',
+    'title': 'የመንገድ ክፍያ',
+    'step1': 'ደረጃ 1፡ ለማህበሩ በቀጥታ ይክፈሉ',
+    'pay_to': 'በቴሌብር ይክፈሉ፡',
+    'bank_details': 'የባንክ መረጃ',
+    'copy_hint': 'ቁጥሩን ኮፒ ለማድረግ ይንኩት',
+    'step2': 'ደረጃ 2፡ የደረሰኝ ፎቶ ያያይዙ',
+    'pick_img': 'የደረሰኙን ፎቶ አንሳ ወይም ስክሪንሾት መረጥ',
     'amount': 'የተላከው ብር (በብር)',
     'txid': 'የማረጋገጫ ቁጥር (Reference / TXID)',
     'submit': 'ለማረጋገጥ ይላኩ',
     'permit': 'ፈቃድ ገቢ ሆኗል',
     'pay_req': 'ክፍያ ይጠበቅብዎታል',
     'due': 'ጠቅላላ ዕዳ',
-    'history': 'የቅርብ ጊዜ እንቅስቃሴዎች',
-    'pay_btn': 'ክፍያ ፈጽም',
+    'pay_btn': 'አሁኑኑ ይክፈሉ (ቴሌብር)',
     'receipt_btn': 'የመንገድ ፈቃድ አሳይ',
-    'receipt_header': 'ታና ሱፐር አፕ - ዲጂታል ደረሰኝ',
+    'receipt_header': 'ሁሉገበያ - ዲጂታል ፈቃድ',
     'receipt_verified': 'የአገልግሎት ፈቃድ ተረጋግጧል',
-    'receipt_provider': 'አቅራቢ፡',
-    'receipt_name': 'የባጃጅ ማህበር ስም፡',
+    'receipt_name': 'የአሽከርካሪ ስም፡',
     'receipt_plate': 'የሰሌዳ ቁጥር፡',
-    'receipt_date': 'የተከፈለበት ቀን፡',
+    'receipt_nid': 'ብሔራዊ መታወቂያ፡',
     'receipt_status': 'ሁኔታ፡',
     'receipt_active': 'ተከፍሏል ✅',
-    'receipt_footer': 'ይህ ደረሰኝ አሽከርካሪው በጣና ዲጂታል ፕላትፎርም የተመዘገበ መሆኑን ያረጋግጣል።',
     'close': 'ዝጋ',
   }
 };
@@ -72,18 +69,22 @@ class DriverRoutePage extends StatefulWidget {
 }
 
 class _DriverRoutePageState extends State<DriverRoutePage> {
-  // 2. The language variable is now inside the state (FIXES DUPLICATE ERROR)
   String lang = 'am';
-
   final String uid = FirebaseAuth.instance.currentUser!.uid;
-  late DocumentReference walletRef;
 
   bool isRoutePaid = false;
   String bajajName = "Loading...";
   String plateNumber = "---";
+  String nationalId = "---";
+  String associationId = "";
   bool isLoading = true;
   Timestamp? lastPaymentDate;
 
+  String assocMerchantId = "";
+  String assocBankInfo = "Loading bank details...";
+
+  File? _imageFile;
+  final ImagePicker _picker = ImagePicker();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _transactionController = TextEditingController();
 
@@ -93,32 +94,38 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   @override
   void initState() {
     super.initState();
-    walletRef = FirebaseFirestore.instance.collection('wallets').doc(uid);
-    _loadWalletData();
+    _loadAllData();
   }
 
-  Future<void> _loadWalletData() async {
+  Future<void> _loadAllData() async {
     try {
-      var doc = await walletRef.get(const GetOptions(source: Source.server));
+      var doc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
       if (!mounted) return;
 
-      if (!doc.exists ||
-          (doc.data() as Map<String, dynamic>)['plateNumber'] == "---") {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const AuthPage()),
-        ).then((_) => _loadWalletData());
-      } else {
+      if (doc.exists) {
         var data = doc.data() as Map<String, dynamic>;
         setState(() {
           isRoutePaid = data['isRoutePaid'] ?? false;
-          bajajName = data['bajajName'] ?? "Unnamed Bajaj";
+          bajajName = data['fullName'] ?? "Unnamed Bajaj";
           plateNumber = data['plateNumber'] ?? "---";
+          nationalId = data['nationalId'] ?? "---";
+          associationId = data['associationId'] ?? 'tana_assoc';
           lastPaymentDate = data['lastPaymentDate'] as Timestamp?;
         });
+
+        var assocDoc = await FirebaseFirestore.instance
+            .collection('associations')
+            .doc(associationId)
+            .get();
+        if (assocDoc.exists && mounted) {
+          setState(() {
+            assocMerchantId = assocDoc.data()?['telebirrId'] ?? "000000";
+            assocBankInfo =
+                assocDoc.data()?['bankInfo'] ?? "No bank info listed.";
+          });
+        }
       }
-    } catch (e) {
-      debugPrint("Firebase Error: $e");
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -127,390 +134,299 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   double calculateTotalDue() {
     if (isRoutePaid) return 0.0;
     if (lastPaymentDate == null) return baseFee;
-
     DateTime lastPay = lastPaymentDate!.toDate();
     DateTime now = DateTime.now();
     int daysSinceLastPay = now.difference(lastPay).inDays;
-
     if (daysSinceLastPay <= 7) return baseFee;
-
     int missedWeeks = (daysSinceLastPay / 7).floor();
-    double arrears = missedWeeks * baseFee;
-    double penalty = daysSinceLastPay * (baseFee * penaltyRate);
-
-    return arrears + penalty;
+    return (missedWeeks * baseFee) +
+        (daysSinceLastPay * (baseFee * penaltyRate));
   }
 
-  void payRoute() async {
-    double total = calculateTotalDue();
-    var doc = await walletRef.get();
-    double currentBalance = (doc['balance'] ?? 0.0).toDouble();
-    String assocName =
-        (doc.data() as Map<String, dynamic>)['association'] ?? 'General';
+  Future<void> _pickImage() async {
+    final ImageSource? source = await showDialog<ImageSource>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Select Receipt Source"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, ImageSource.camera),
+              child: const Text("Camera (ካሜራ)")),
+          TextButton(
+              onPressed: () => Navigator.pop(context, ImageSource.gallery),
+              child: const Text("Gallery / Screenshot (ጋለሪ)")),
+        ],
+      ),
+    );
 
-    if (currentBalance >= total) {
-      setState(() => isLoading = true);
-      final batch = FirebaseFirestore.instance.batch();
-
-      batch.update(walletRef, {
-        'balance': FieldValue.increment(-total),
-        'isRoutePaid': true,
-        'lastPaymentDate': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(FirebaseFirestore.instance.collection('transactions').doc(), {
-        'uid': uid,
-        'amount': total,
-        'type': 'payment',
-        'title': 'Weekly Route Fee',
-        'association': assocName,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      if (!mounted) return;
-      await _loadWalletData();
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Insufficient Balance!")));
+    if (source != null) {
+      final XFile? pickedFile =
+          await _picker.pickImage(source: source, imageQuality: 50);
+      if (pickedFile != null)
+        setState(() => _imageFile = File(pickedFile.path));
     }
   }
 
-  void submitDepositRequest() async {
-    String amountText = _amountController.text.trim();
-    String txId = _transactionController.text.trim();
+  Future<void> submitDepositRequest() async {
+    if (_amountController.text.isEmpty ||
+        _transactionController.text.isEmpty ||
+        _imageFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Please fill all info and pick image!")));
+      return;
+    }
+    setState(() => isLoading = true);
+    try {
+      String fileName =
+          'receipts/${uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      UploadTask uploadTask =
+          FirebaseStorage.instance.ref().child(fileName).putFile(_imageFile!);
+      TaskSnapshot snapshot = await uploadTask;
+      String imageUrl = await snapshot.ref.getDownloadURL();
 
-    if (amountText.isNotEmpty && txId.isNotEmpty) {
-      double? amount = double.tryParse(amountText);
-      if (amount == null || amount <= 0) return;
+      await FirebaseFirestore.instance.collection('deposit_requests').add({
+        'uid': uid,
+        'driverName': bajajName,
+        'amount': double.tryParse(_amountController.text) ?? 0.0,
+        'transactionId': _transactionController.text.trim(),
+        'associationId': associationId,
+        'status': 'pending',
+        'imageUrl': imageUrl,
+        'paymentMethod': 'Digital',
+        'timestamp': FieldValue.serverTimestamp(),
+      });
 
-      setState(() => isLoading = true);
-      try {
-        await FirebaseFirestore.instance.collection('deposit_requests').add({
-          'uid': uid,
-          'driverName': bajajName,
-          'amount': amount,
-          'transactionId': txId,
-          'status': 'pending',
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-        _amountController.clear();
-        _transactionController.clear();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("Request Sent!")));
-      } finally {
-        if (mounted) setState(() => isLoading = false);
-      }
+      if (!mounted) return;
+      _amountController.clear();
+      _transactionController.clear();
+      setState(() {
+        _imageFile = null;
+        isLoading = false;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Sent for approval!")));
+    } catch (e) {
+      setState(() => isLoading = false);
+      print("Error: $e");
+    }
+  }
+
+  Future<void> _launchTelebirr() async {
+    double total = calculateTotalDue();
+    final Uri url = Uri.parse(
+        "telebirr://payment?merchantId=$assocMerchantId&amount=$total");
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Telebirr app not found.")));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator(color: Colors.teal)));
-    }
-
+    if (isLoading)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     double totalToPay = calculateTotalDue();
-    bool isLate = lastPaymentDate != null &&
-        DateTime.now().difference(lastPaymentDate!.toDate()).inDays > 7;
 
     return Scaffold(
-      // 3. UPDATED APPBAR WITH LANGUAGE TOGGLE
       appBar: AppBar(
         title: Text(localizedText[lang]!['title']!),
         backgroundColor: Colors.teal[800],
         foregroundColor: Colors.white,
         actions: [
           TextButton(
-            onPressed: () {
-              setState(() {
-                lang = (lang == 'en') ? 'am' : 'en';
-              });
-            },
-            child: Text(
-              lang == 'en' ? "አማርኛ" : "English",
-              style: const TextStyle(
-                  color: Colors.yellow, fontWeight: FontWeight.bold),
-            ),
+            onPressed: () =>
+                setState(() => lang = (lang == 'en' ? 'am' : 'en')),
+            child: Text(lang == 'en' ? "አማርኛ" : "English",
+                style: const TextStyle(color: Colors.yellow)),
           ),
         ],
       ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            children: [
-              Card(
-                elevation: 4,
-                color: Colors.teal.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(15.0),
-                  child: Column(
-                    children: [
-                      StreamBuilder<DocumentSnapshot>(
-                        stream: walletRef.snapshots(),
-                        builder: (context, snapshot) {
-                          double balance = 0.0;
-                          if (snapshot.hasData && snapshot.data!.exists) {
-                            balance =
-                                (snapshot.data!['balance'] ?? 0.0).toDouble();
-                          }
-                          return Text(
-                              "${localizedText[lang]!['balance']}: $balance ብር",
-                              style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.teal));
-                        },
-                      ),
-                      const Divider(),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(localizedText[lang]!['step1']!,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13)),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.yellow.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.shade300),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(localizedText[lang]!['pay_to']!,
-                                style: const TextStyle(fontSize: 12)),
-                            const SizedBox(height: 4),
-                            const Text(
-                              "0940651491 (Telebirr)",
-                              style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.red),
-                            ),
-                            const Divider(),
-                            Text(
-                              localizedText[lang]!['bank_details']!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(localizedText[lang]!['step2']!,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13)),
-                      ),
-                      TextField(
-                        controller: _amountController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                            labelText: localizedText[lang]!['amount'],
-                            prefixIcon: const Icon(Icons.money_outlined)),
-                      ),
-                      TextField(
-                        controller: _transactionController,
-                        decoration: InputDecoration(
-                            labelText: localizedText[lang]!['txid'],
-                            prefixIcon:
-                                const Icon(Icons.receipt_long_outlined)),
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton(
-                        onPressed: isLoading ? null : submitDepositRequest,
-                        style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 45),
-                            backgroundColor:
-                                isLoading ? Colors.grey : Colors.teal,
-                            foregroundColor: Colors.white),
-                        child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white, strokeWidth: 2))
-                            : Text(localizedText[lang]!['submit']!),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: isRoutePaid
-                      ? Colors.green.shade100
-                      : (isLate
-                          ? Colors.orange.shade100
-                          : Colors.blue.shade100),
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(
-                      color: isRoutePaid
-                          ? Colors.green
-                          : (isLate ? Colors.orange : Colors.blue)),
-                ),
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15)),
+              child: Padding(
+                padding: const EdgeInsets.all(15.0),
                 child: Column(
                   children: [
-                    Text(
-                        isRoutePaid
-                            ? localizedText[lang]!['permit']!
-                            : localizedText[lang]!['pay_req']!,
-                        style: const TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold)),
-                    if (!isRoutePaid)
-                      Text("${localizedText[lang]!['due']}: $totalToPay ብር",
-                          style:
-                              const TextStyle(fontSize: 18, color: Colors.red)),
+                    Text(localizedText[lang]!['step1']!,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      onPressed: _launchTelebirr,
+                      icon: const Icon(Icons.account_balance_wallet),
+                      label: Text(localizedText[lang]!['pay_btn']!),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[700],
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 50)),
+                    ),
+                    const Divider(height: 30),
+                    Text(localizedText[lang]!['bank_details']!,
+                        style: const TextStyle(fontSize: 12)),
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: assocBankInfo));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Copied!")));
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue.shade200)),
+                        child: Column(children: [
+                          Text(assocBankInfo,
+                              textAlign: TextAlign.center,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
+                          Text(localizedText[lang]!['copy_hint']!,
+                              style: const TextStyle(
+                                  fontSize: 10, color: Colors.blue)),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(height: 25),
+                    Text(localizedText[lang]!['step2']!,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: _pickImage,
+                      child: Container(
+                        height: 120,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.teal.shade200)),
+                        child: _imageFile == null
+                            ? Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                    const Icon(Icons.camera_enhance,
+                                        size: 40, color: Colors.teal),
+                                    Text(localizedText[lang]!['pick_img']!,
+                                        style: const TextStyle(fontSize: 12))
+                                  ])
+                            : ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child:
+                                    Image.file(_imageFile!, fit: BoxFit.cover)),
+                      ),
+                    ),
+                    TextField(
+                        controller: _amountController,
+                        decoration: InputDecoration(
+                            labelText: localizedText[lang]!['amount']),
+                        keyboardType: TextInputType.number),
+                    TextField(
+                        controller: _transactionController,
+                        decoration: InputDecoration(
+                            labelText: localizedText[lang]!['txid'])),
+                    const SizedBox(height: 15),
+                    ElevatedButton(
+                      onPressed: submitDepositRequest,
+                      style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 45),
+                          backgroundColor: Colors.teal),
+                      child: Text(localizedText[lang]!['submit']!,
+                          style: const TextStyle(color: Colors.white)),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
-              if (!isRoutePaid)
-                ElevatedButton(
-                  onPressed: payRoute,
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 60)),
-                  child:
-                      Text("${localizedText[lang]!['pay_btn']} $totalToPay ብር"),
-                ),
-              if (isRoutePaid)
-                OutlinedButton.icon(
+            ),
+            const SizedBox(height: 20),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                  color:
+                      isRoutePaid ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(
+                      color: isRoutePaid ? Colors.green : Colors.red)),
+              child: Column(children: [
+                Text(
+                    isRoutePaid
+                        ? localizedText[lang]!['permit']!
+                        : localizedText[lang]!['pay_req']!,
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color:
+                            isRoutePaid ? Colors.green[800] : Colors.red[800])),
+                if (!isRoutePaid)
+                  Text("${localizedText[lang]!['due']}: $totalToPay ETB",
+                      style: const TextStyle(fontSize: 18, color: Colors.red)),
+              ]),
+            ),
+            if (isRoutePaid)
+              Padding(
+                padding: const EdgeInsets.only(top: 20),
+                child: OutlinedButton.icon(
                   onPressed: () => _showTrafficReceipt(context),
                   icon: const Icon(Icons.verified_user),
                   label: Text(localizedText[lang]!['receipt_btn']!),
                   style: OutlinedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50)),
                 ),
-              const SizedBox(height: 30),
-              Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(localizedText[lang]!['history']!,
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold))),
-              const Divider(),
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('transactions')
-                    .where('uid', isEqualTo: uid)
-                    .orderBy('timestamp', descending: true)
-                    .limit(5)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  var docs = snapshot.data!.docs;
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: docs.length,
-                    itemBuilder: (context, index) {
-                      var data = docs[index].data() as Map<String, dynamic>;
-                      return ListTile(
-                        title: Text(data['title'] ?? "Transaction"),
-                        subtitle: Text(data['timestamp'] != null
-                            ? DateFormat('MMM d, h:mm a').format(
-                                (data['timestamp'] as Timestamp).toDate())
-                            : ""),
-                        trailing: Text("${data['amount']} ETB"),
-                      );
-                    },
-                  );
-                },
               ),
-              TextButton(
-                onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const AdminPanelPage())),
-                child: const Text("ADMIN ACCESS",
-                    style: TextStyle(color: Colors.grey, fontSize: 10)),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 
   void _showTrafficReceipt(BuildContext context) {
+    String qrData =
+        "HULLUGEBEYA PERMIT\nDriver: $bajajName\nPlate: $plateNumber\nStatus: VERIFIED ✅";
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
+        height: MediaQuery.of(context).size.height * 0.8,
         padding: const EdgeInsets.all(25),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              const Icon(Icons.verified, color: Colors.teal, size: 90),
-              Text(localizedText[lang]!['receipt_header']!,
-                  style: const TextStyle(
-                      color: Colors.teal,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14)),
-              Text(localizedText[lang]!['receipt_verified']!,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.bold)),
-              const Divider(height: 40),
-              _receiptRow(localizedText[lang]!['receipt_provider']!,
-                  "Tana Digital Solutions"),
-              _receiptRow(localizedText[lang]!['receipt_name']!, bajajName),
-              _receiptRow(localizedText[lang]!['receipt_plate']!, plateNumber),
-              _receiptRow(
-                  localizedText[lang]!['receipt_date']!,
-                  lastPaymentDate != null
-                      ? DateFormat('MMM d, yyyy')
-                          .format(lastPaymentDate!.toDate())
-                      : "Today"),
-              _receiptRow(localizedText[lang]!['receipt_status']!,
-                  localizedText[lang]!['receipt_active']!),
-              const SizedBox(height: 40),
-              const Icon(Icons.qr_code_scanner,
-                  size: 180, color: Colors.black87),
-              const SizedBox(height: 20),
-              Text(localizedText[lang]!['receipt_footer']!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
-              const SizedBox(height: 30),
-              ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(localizedText[lang]!['close']!)),
-            ],
-          ),
-        ),
+        child: Column(children: [
+          const Icon(Icons.check_circle, color: Colors.teal, size: 80),
+          Text(localizedText[lang]!['receipt_header']!,
+              style: const TextStyle(
+                  color: Colors.teal, fontWeight: FontWeight.bold)),
+          const Divider(height: 40),
+          _receiptRow(localizedText[lang]!['receipt_name']!, bajajName),
+          _receiptRow(localizedText[lang]!['receipt_plate']!, plateNumber),
+          _receiptRow(localizedText[lang]!['receipt_nid']!, nationalId),
+          _receiptRow(localizedText[lang]!['receipt_status']!,
+              localizedText[lang]!['receipt_active']!),
+          const Spacer(),
+          QrImageView(data: qrData, version: QrVersions.auto, size: 180.0),
+          const SizedBox(height: 20),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(localizedText[lang]!['close']!)),
+        ]),
       ),
     );
   }
 
   Widget _receiptRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value,
-              style:
-                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        ],
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 10.0),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: const TextStyle(color: Colors.grey)),
+        Text(value,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
+      ]),
     );
   }
 }

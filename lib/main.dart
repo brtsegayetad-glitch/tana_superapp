@@ -10,17 +10,14 @@ import 'driver_route_page.dart';
 import 'market_home_page.dart';
 import 'bajaj_passenger_page.dart';
 import 'bajaj_driver_page.dart';
-import 'registration_page.dart'; // This file contains your AuthPage class
-import 'admin_panel.dart';
+import 'registration_page.dart';
+import 'admin_panel_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // This is the correct way to start Firebase using your options file
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
   runApp(const TanaSuperApp());
 }
 
@@ -36,7 +33,6 @@ class TanaSuperApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      // Logic to decide: Auth Screen or Home Screen?
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -44,8 +40,6 @@ class TanaSuperApp extends StatelessWidget {
             return const Scaffold(
                 body: Center(child: CircularProgressIndicator()));
           }
-
-          // IF LOGGED IN
           if (snapshot.hasData) {
             return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance
@@ -57,18 +51,13 @@ class TanaSuperApp extends StatelessWidget {
                   return const Scaffold(
                       body: Center(child: CircularProgressIndicator()));
                 }
-
-                // If user document doesn't exist in Firestore, send to Registration/AuthPage
                 if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
                   return const AuthPage();
                 }
-
                 return const HomeScreen();
               },
             );
           }
-
-          // IF NOT LOGGED IN
           return const AuthPage();
         },
       ),
@@ -76,7 +65,6 @@ class TanaSuperApp extends StatelessWidget {
   }
 }
 
-// --- MAIN HOME SCREEN (WITH ROLE LOGIC) ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -87,11 +75,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // Professional Logout Function
   Future<void> _handleLogout() async {
     await FirebaseAuth.instance.signOut();
-    // The StreamBuilder in TanaSuperApp will automatically see the logout
-    // and show the AuthPage, so we don't need manual navigation here.
   }
 
   @override
@@ -107,68 +92,87 @@ class _HomeScreenState extends State<HomeScreen> {
               body: Center(child: CircularProgressIndicator()));
         }
 
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const AuthPage();
-        }
-
-        var userData = snapshot.data!.data() as Map<String, dynamic>;
+        var userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
         String role = userData['role'] ?? 'Passenger';
         String name = userData['fullName'] ?? 'User';
+        String myPhone = userData['phoneNumber'] ?? '';
 
-        // 1. Pages for everyone
-        List<Widget> pages = [
-          const TanaMarketPage(),
-          const BajajPassengerPage()
-        ];
-        List<BottomNavigationBarItem> navItems = [
-          const BottomNavigationBarItem(
-              icon: Icon(Icons.store), label: 'Market'),
-          const BottomNavigationBarItem(
-              icon: Icon(Icons.local_taxi), label: 'Ride'),
-        ];
+        // --- THE UPDATED ORDER OF PAGES ---
+        // 1. Ride (Passenger Map)
+        // 2. Driver (Bajaj Mode - Only for Drivers)
+        // 3. Route Pay (Permits - Only for Drivers)
+        // 4. Market (Hullugebeya)
 
-        // 2. Additional pages for Drivers only
+        List<Widget> pages = [];
+        List<BottomNavigationBarItem> navItems = [];
+
+        // 1. Ride (Always First)
+        pages.add(const BajajPassengerPage());
+        navItems.add(const BottomNavigationBarItem(
+          icon: Icon(Icons.map_outlined),
+          activeIcon: Icon(Icons.map),
+          label: 'Ride',
+        ));
+
+        // 2 & 3. Driver and Route (Only show if role is Driver)
         if (role == 'Driver') {
-          pages.add(const DriverRoutePage());
           pages.add(const BajajDriverPage());
           navItems.add(const BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet), label: 'Pay'));
+            icon: Icon(Icons.electric_rickshaw_outlined), // Bajaj Icon
+            activeIcon: Icon(Icons.electric_rickshaw),
+            label: 'Driver',
+          ));
+
+          pages.add(const DriverRoutePage());
           navItems.add(const BottomNavigationBarItem(
-              icon: Icon(Icons.drive_eta), label: 'Driver'));
+            icon: Icon(Icons.payments_outlined),
+            activeIcon: Icon(Icons.payments),
+            label: 'Route Pay',
+          ));
         }
+
+        // 4. Market (Always Last)
+        pages.add(const TanaMarketPage());
+        navItems.add(const BottomNavigationBarItem(
+          icon: Icon(Icons.storefront_outlined),
+          activeIcon: Icon(Icons.storefront),
+          label: 'Market',
+        ));
 
         return Scaffold(
           appBar: AppBar(
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
-                    style:
-                        const TextStyle(fontSize: 14, color: Colors.white70)),
-                Text(role == 'Driver' ? "Driver Mode" : "Hullugebeya",
-                    style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
-              ],
+            backgroundColor: Colors.teal[800],
+            foregroundColor: Colors.white,
+            title: GestureDetector(
+              onLongPress: () {
+                // Ensure phone matches your admin number
+                if (myPhone == "0923456789") {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const AdminPanelPage()),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Admin Portal Locked")),
+                  );
+                }
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name,
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.white70)),
+                  const Text("Tana SuperApp",
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
             ),
-            backgroundColor: Colors.teal,
             actions: [
-              // ADMIN BUTTON: Replace with your actual phone-email
-              if (user?.email == "0912345678@hullu.com")
-                IconButton(
-                  icon: const Icon(Icons.admin_panel_settings,
-                      color: Colors.white),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const AdminPanelPage()),
-                    );
-                  },
-                ),
               IconButton(
-                icon: const Icon(Icons.logout, color: Colors.white),
+                icon: const Icon(Icons.logout),
                 onPressed: _handleLogout,
               ),
             ],
@@ -178,9 +182,15 @@ class _HomeScreenState extends State<HomeScreen> {
             currentIndex:
                 _selectedIndex >= navItems.length ? 0 : _selectedIndex,
             type: BottomNavigationBarType.fixed,
-            selectedItemColor: Colors.teal,
-            unselectedItemColor: Colors.grey,
-            onTap: (index) => setState(() => _selectedIndex = index),
+            selectedItemColor: Colors.teal[800],
+            unselectedItemColor: Colors.blueGrey,
+            backgroundColor: Colors.white,
+            elevation: 10,
+            onTap: (index) {
+              setState(() {
+                _selectedIndex = index;
+              });
+            },
             items: navItems,
           ),
         );

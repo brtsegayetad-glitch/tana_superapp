@@ -57,7 +57,7 @@ final List<BahirDarLocation> masterDirectory = [
       name: "Zehmar Restaurant",
       nameAmh: "ዝማር ሬስቶራንት",
       coordinates: const LatLng(11.591427, 37.380022),
-      category: "High School"),
+      category: "Restaurant"),
 
   // --- UNIVERSITIES & COLLEGES ---
   BahirDarLocation(
@@ -108,6 +108,11 @@ final List<BahirDarLocation> masterDirectory = [
       coordinates: const LatLng(11.574013, 37.378057),
       category: "Church"),
   BahirDarLocation(
+      name: "St. Rufael Church",
+      nameAmh: "ቅዱስ ሩፋኤል ቤተክርስቲያን",
+      coordinates: const LatLng(11.586736, 37.406702),
+      category: "Church"),
+  BahirDarLocation(
       name: "Kidane Mihret Church",
       nameAmh: "ኪዳነ ምሕረት ቤተክርስቲያን",
       coordinates: const LatLng(11.592404, 37.374224),
@@ -121,7 +126,7 @@ final List<BahirDarLocation> masterDirectory = [
       name: "Hamere Noah Kidane Mihret",
       nameAmh: "ሐመረ ኖኅ ኪዳነ ምሕረት ትምህርት ቤት ",
       coordinates: const LatLng(11.5820, 37.3650),
-      category: "Church"),
+      category: "School"),
   BahirDarLocation(
       name: "St. Gabriel Church",
       nameAmh: "ቅዱስ ገብርኤል ቤተክርስቲያን",
@@ -130,6 +135,94 @@ final List<BahirDarLocation> masterDirectory = [
   BahirDarLocation(
       name: "Kulkual Meda Primary",
       nameAmh: "ኩልኳል ሜዳ መጀ ደረጃ ት/ቤት",
-      coordinates: const LatLng(11.590708, 37.3616686), // Updated from your photo!
+      coordinates:
+          const LatLng(11.590708, 37.3616686), // Updated from your photo!
       category: "School"),
+
+// --- HOTELS & PENSIONS ---
+  BahirDarLocation(
+      name: "Old Airport Pension",
+      nameAmh: "አሮጌው አየር ማረፊያ ፔንሲዮን",
+      coordinates: const LatLng(11.589842, 37.383207),
+      category: "Pension/Hotel"),
+  BahirDarLocation(
+      name: "Hareg Pension",
+      nameAmh: "ሐረግ ፔንሲዮን",
+      coordinates: const LatLng(11.594942, 37.383311),
+      category: "Pension/Hotel"),
+  BahirDarLocation(
+      name: "Fidel Hotel",
+      nameAmh: "ፊደል ሆቴል",
+      coordinates: const LatLng(11.591412, 37.379533),
+      category: "Pension/Hotel"),
+
+  BahirDarLocation(
+      name: "Kibiyad 15 Apartments",
+      nameAmh: "ኪቢያድ 15 አፓርትመንት",
+      coordinates: const LatLng(11.589950, 37.380081),
+      category: "Apartment/Building"),
+
+// --- CLINICS & HOSPITALS ---
+  BahirDarLocation(
+      name: "Eyasta Medical Center",
+      nameAmh: "እያስታ የሕክምና ማዕከል",
+      coordinates: const LatLng(11.585736, 37.376116),
+      category: "Clinic"),
+  BahirDarLocation(
+      name: "Dream Care General Hospital",
+      nameAmh: "ድሪም ኬር አጠቃላይ ሆስፒታል",
+      coordinates: const LatLng(11.579304, 37.374301),
+      category: "Hospital"),
+  BahirDarLocation(
+      name: "Afilas General Hospital",
+      nameAmh: "አፊላስ አጠቃላይ ሆስፒታል",
+      coordinates: const LatLng(11.606335, 37.371228),
+      category: "Hospital"),
+  BahirDarLocation(
+      name: "Amaris kids clinic",
+      nameAmh: "አማሪስ የልጆች ክሊኒክ",
+      coordinates: const LatLng(11.589093, 37.375254),
+      category: "Hospital"),
+  BahirDarLocation(
+      name: "Abay Health Center",
+      nameAmh: "አባይ ጤና ጣቢያ",
+      coordinates: const LatLng(11.6035, 37.4082),
+      category: "Clinic"),
+
+// --- SQUARES & LANDMARKS ---
+  BahirDarLocation(
+      name: "Noc Square",
+      nameAmh: "ኖክ አደባባይ",
+      coordinates: const LatLng(11.585440, 37.375013),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Yetebaberut Square",
+      nameAmh: "የተባባሩት አደባባይ",
+      coordinates: const LatLng(11.585410, 37.367691),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Dipo",
+      nameAmh: "ዲፖ",
+      coordinates: const LatLng(11.600224, 37.375246),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Papyrus Square",
+      nameAmh: "ፓፒረስ አደባባይ",
+      coordinates: const LatLng(11.587729, 37.387986),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Giorgis Square",
+      nameAmh: "ጊዮርጊስ አደባባይ",
+      coordinates: const LatLng(11.594735, 37.388025),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Wisdom Square",
+      nameAmh: "ዊዝደም አደባባይ",
+      coordinates: const LatLng(11.587654, 37.395260),
+      category: "Square"),
+  BahirDarLocation(
+      name: "Polytechnic College",
+      nameAmh: "ፖሊ ቴክኒክ ኮሌጅ",
+      coordinates: const LatLng(11.601668, 37.424980),
+      category: "College"),
 ];

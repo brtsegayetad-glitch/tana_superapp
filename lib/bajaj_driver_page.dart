@@ -6,6 +6,7 @@ import 'package:vibration/vibration.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'driver_route_page.dart'; // Ensure this file exists
 
 class BajajDriverPage extends StatefulWidget {
   const BajajDriverPage({super.key});
@@ -21,6 +22,8 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isOnline = true;
   StreamSubscription<Position>? _driverPositionStream;
+
+  final List<String> _ignoredRideIds = [];
 
   // AUTH SYNCED DATA
   String? activeTripId;
@@ -157,6 +160,42 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     setState(() => activeTripId = rideId);
   }
 
+  Future<void> _cancelActiveTrip() async {
+    if (activeTripId == null) return;
+    bool confirm = await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Cancel Trip?"),
+            content: const Text(
+                "This will release the passenger for other drivers."),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text("NO")),
+              TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text("YES, CANCEL")),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (confirm) {
+      await FirebaseFirestore.instance
+          .collection('ride_requests')
+          .doc(activeTripId)
+          .update({
+        'status': 'searching',
+        'driver_id': null,
+        'driver_name': null,
+      });
+      setState(() {
+        activeTripId = null;
+        _otpInputController.clear();
+      });
+    }
+  }
+
   Future<void> _verifyAndStart(String correctOtp) async {
     if (_otpInputController.text.trim() == correctOtp && activeTripId != null) {
       await FirebaseFirestore.instance
@@ -173,7 +212,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   Future<void> _finishTrip(int price) async {
     if (activeTripId == null) return;
-
     var tripSnapshot = await FirebaseFirestore.instance
         .collection('ride_requests')
         .doc(activeTripId)
@@ -192,15 +230,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     });
 
     await FirebaseFirestore.instance
-        .collection('drivers')
-        .doc(_currentDriverId)
-        .set({
-      'total_debt': FieldValue.increment(commission),
-      'name': _driverName,
-      'plate': _plateNumber,
-    }, SetOptions(merge: true));
-
-    await FirebaseFirestore.instance
         .collection('users')
         .doc(_currentDriverId)
         .update({
@@ -211,7 +240,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
         .collection('ride_requests')
         .doc(activeTripId)
         .update({'status': 'completed'});
-
     setState(() => activeTripId = null);
   }
 
@@ -222,12 +250,24 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Choose screen based on Bottom Nav selection
+    Widget currentScreen;
+    if (_selectedIndex == 0) {
+      currentScreen = _buildHomeScreen();
+    } else if (_selectedIndex == 1) {
+      currentScreen = _buildWalletScreen();
+    } else {
+      currentScreen = const DriverRoutePage(); // Third tab for Permit
+    }
+
     return Scaffold(
-      // FIXED: Prevents the background from squishing when the keyboard opens
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: Text(
-            _selectedIndex == 0 ? "Tana Driver: $_driverName" : "My Wallet"),
+        title: Text(_selectedIndex == 0
+            ? "Tana Driver: $_driverName"
+            : _selectedIndex == 1
+                ? "My Wallet"
+                : "Route Permit"),
         backgroundColor: Colors.teal[800],
         foregroundColor: Colors.white,
         actions: [
@@ -239,15 +279,17 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
             )
         ],
       ),
-      body: _selectedIndex == 0 ? _buildHomeScreen() : _buildWalletScreen(),
+      body: currentScreen,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
         selectedItemColor: Colors.teal[800],
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
           BottomNavigationBarItem(
               icon: Icon(Icons.account_balance_wallet), label: "Wallet"),
+          BottomNavigationBarItem(icon: Icon(Icons.badge), label: "Permit"),
         ],
       ),
     );
@@ -256,59 +298,100 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   Widget _buildHomeScreen() {
     if (!_isOnline) return const Center(child: Text("You are Offline"));
 
-    if (activeTripId != null) {
-      return StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('ride_requests')
-            .doc(activeTripId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("Trip Ended"));
-          }
-          var data = snapshot.data!.data() as Map<String, dynamic>;
-          String status = data['status'] ?? 'searching';
-          int price = data['price'] ?? 0;
-
-          if (status == 'accepted') return _buildOtpScreen(data);
-          if (status == 'started') {
-            return _buildInTripScreen(price, data['passenger_phone'] ?? "");
-          }
-
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('wallets')
+          .doc(_currentDriverId)
+          .snapshots(),
+      builder: (context, walletSnapshot) {
+        if (!walletSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
-        },
-      );
-    }
-
-    // FIXED QUERY: Removed orderBy to avoid Index errors and ensure Admin dispatches show up
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('ride_requests').where(
-          'status',
-          whereIn: ['searching', 'pending']).snapshots(), // No orderBy here
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
-              child: Text("Waiting for requests in Bahir Dar..."));
         }
 
-        // Sort in-memory instead of in the cloud (Better for 4GB RAM & avoids Index errors)
-        var docs = snapshot.data!.docs;
-        docs.sort((a, b) {
-          var aTime = a['timestamp'] as Timestamp?;
-          var bTime = b['timestamp'] as Timestamp?;
-          if (aTime == null) return -1;
-          if (bTime == null) return 1;
-          return bTime.compareTo(aTime);
-        });
+        bool isPaid = false;
+        if (walletSnapshot.data!.exists) {
+          isPaid = walletSnapshot.data!['isRoutePaid'] ?? false;
+        }
 
-        var doc = docs.first;
-        var data = doc.data() as Map<String, dynamic>;
+        if (!isPaid) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    size: 80, color: Colors.red),
+                const Text("WEEKLY PERMIT EXPIRED",
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const Padding(
+                  padding: EdgeInsets.all(25.0),
+                  child: Text(
+                      "You must pay your weekly route association fee before you can accept new rides.",
+                      textAlign: TextAlign.center),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal[800]),
+                  onPressed: () => setState(() => _selectedIndex = 2),
+                  child: const Text("GO TO PAYMENT",
+                      style: TextStyle(color: Colors.white)),
+                )
+              ],
+            ),
+          );
+        }
 
-        // Only trigger sound for new ones
-        _triggerAlert();
+        // Normal Ride Logic
+        if (activeTripId != null) {
+          return StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('ride_requests')
+                .doc(activeTripId)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || !snapshot.data!.exists) {
+                return const Center(child: Text("Trip Ended"));
+              }
+              var data = snapshot.data!.data() as Map<String, dynamic>;
+              String status = data['status'] ?? 'searching';
+              int price = data['price'] ?? 0;
+              if (status == 'accepted') return _buildOtpScreen(data);
+              if (status == 'started') {
+                return _buildInTripScreen(price, data['passenger_phone'] ?? "");
+              }
+              return const Center(child: CircularProgressIndicator());
+            },
+          );
+        }
 
-        int displayPrice = data['price'] ?? 0;
-        return _buildRequestPopup(data, displayPrice, doc.id);
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('ride_requests')
+              .where('status', whereIn: ['searching', 'pending']).snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return const Center(child: Text("Waiting for requests..."));
+            }
+            var docs = snapshot.data!.docs
+                .where((d) => !_ignoredRideIds.contains(d.id))
+                .toList();
+            if (docs.isEmpty) {
+              return const Center(child: Text("Waiting for new requests..."));
+            }
+
+            docs.sort((a, b) {
+              var aTime = a['timestamp'] as Timestamp?;
+              var bTime = b['timestamp'] as Timestamp?;
+              return (bTime ?? Timestamp.now())
+                  .compareTo(aTime ?? Timestamp.now());
+            });
+
+            var doc = docs.first;
+            var data = doc.data() as Map<String, dynamic>;
+            _triggerAlert();
+            return _buildRequestPopup(data, data['price'] ?? 0, doc.id);
+          },
+        );
       },
     );
   }
@@ -316,9 +399,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   Widget _buildRequestPopup(
       Map<String, dynamic> data, int price, String rideId) {
     bool isCallCenter = data['type'] == 'call_center';
-
     return Center(
-      // FIXED: Added SingleChildScrollView inside the popup to avoid overflow
       child: SingleChildScrollView(
         child: Card(
           margin: const EdgeInsets.all(20),
@@ -329,7 +410,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(isCallCenter ? "OFFLINE CALL REQUEST" : "NEW RIDE REQUEST",
+                Text(isCallCenter ? "OFFLINE CALL" : "NEW RIDE",
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.teal)),
                 const Divider(height: 30),
@@ -338,23 +419,9 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: Colors.green)),
-                if (!isCallCenter)
-                  Text("Distance: ${data['distance_km'] ?? '0.0'} KM",
-                      style: TextStyle(color: Colors.grey[600])),
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, color: Colors.red),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                          isCallCenter
-                              ? "Pick up at: ${data['pickup_location']}"
-                              : "To: ${data['destination'] ?? 'Unknown'}",
-                          style: const TextStyle(fontSize: 18)),
-                    ),
-                  ],
-                ),
+                Text("To: ${data['destination'] ?? 'Piazza area'}",
+                    style: const TextStyle(fontSize: 18)),
                 const SizedBox(height: 30),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -362,8 +429,13 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                       minimumSize: const Size(double.infinity, 55)),
                   onPressed: () => _acceptRide(rideId),
                   child: const Text("ACCEPT RIDE",
-                      style: TextStyle(color: Colors.white, fontSize: 18)),
+                      style: TextStyle(color: Colors.white)),
                 ),
+                TextButton(
+                    onPressed: () =>
+                        setState(() => _ignoredRideIds.add(rideId)),
+                    child: const Text("IGNORE / DECLINE",
+                        style: TextStyle(color: Colors.red))),
               ],
             ),
           ),
@@ -373,9 +445,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   }
 
   Widget _buildOtpScreen(Map<String, dynamic> rideData) {
-    bool isCallCenter = rideData['type'] == 'call_center';
-
-    // FIXED: Wrapped in SingleChildScrollView to allow space for the keyboard
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -383,31 +452,29 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           ListTile(
             title: const Text("Passenger Found"),
             trailing: IconButton(
-              icon: const Icon(Icons.phone, color: Colors.green),
-              onPressed: () => _launchPhone(rideData['passenger_phone'] ?? ""),
-            ),
+                icon: const Icon(Icons.phone, color: Colors.green),
+                onPressed: () =>
+                    _launchPhone(rideData['passenger_phone'] ?? "")),
           ),
-          if (!isCallCenter) ...[
-            TextField(
+          TextField(
               controller: _otpInputController,
               decoration: const InputDecoration(
                   labelText: "Enter 4-Digit OTP", border: OutlineInputBorder()),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50)),
-                onPressed: () => _verifyAndStart(rideData['otp'] ?? ""),
-                child: const Text("START TRIP")),
-          ] else
-            ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
-                    minimumSize: const Size(double.infinity, 50)),
-                onPressed: () => _verifyAndStart(""),
-                child: const Text("START TRIP (NO OTP)",
-                    style: TextStyle(color: Colors.white))),
+              keyboardType: TextInputType.number),
+          const SizedBox(height: 20),
+          ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50)),
+              onPressed: () => _verifyAndStart(rideData['otp'] ?? ""),
+              child: const Text("START TRIP")),
+          const SizedBox(height: 10),
+          OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.red),
+                  minimumSize: const Size(double.infinity, 45)),
+              onPressed: _cancelActiveTrip,
+              child: const Text("CANCEL TRIP",
+                  style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -415,30 +482,19 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   Widget _buildInTripScreen(int price, String phone) {
     return Center(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.local_taxi, size: 80, color: Colors.teal),
-            const Text("DRIVING TO DESTINATION",
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: () => _launchPhone(phone),
-              icon: const Icon(Icons.phone),
-              label: const Text("CALL PASSENGER"),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green, foregroundColor: Colors.white),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.local_taxi, size: 80, color: Colors.teal),
+          const Text("IN PROGRESS",
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          ElevatedButton(
               onPressed: () => _finishTrip(price),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               child: const Text("FINISH & COLLECT CASH",
-                  style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
+                  style: TextStyle(color: Colors.white))),
+        ],
       ),
     );
   }
@@ -452,34 +508,24 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
               .doc(_currentDriverId)
               .snapshots(),
           builder: (context, snapshot) {
-            double debt = 0;
-            if (snapshot.hasData && snapshot.data!.exists) {
-              debt = (snapshot.data!['total_debt'] ?? 0.0).toDouble();
-            }
+            double debt = (snapshot.hasData && snapshot.data!.exists)
+                ? (snapshot.data!['total_debt'] ?? 0.0).toDouble()
+                : 0.0;
             return Container(
               width: double.infinity,
               padding: const EdgeInsets.all(30),
-              decoration: BoxDecoration(color: Colors.teal[700]),
-              child: Column(
-                children: [
-                  const Text("TOTAL COMMISSION DEBT",
-                      style: TextStyle(color: Colors.white70)),
-                  Text("${debt.toStringAsFixed(2)} ETB",
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 38,
-                          fontWeight: FontWeight.bold)),
-                ],
-              ),
+              color: Colors.teal[700],
+              child: Column(children: [
+                const Text("COMMISSION DEBT",
+                    style: TextStyle(color: Colors.white70)),
+                Text("${debt.toStringAsFixed(2)} ETB",
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 38,
+                        fontWeight: FontWeight.bold)),
+              ]),
             );
           },
-        ),
-        const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text("RECENT TRIPS",
-                  style: TextStyle(fontWeight: FontWeight.bold))),
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
@@ -496,14 +542,9 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                 itemCount: snapshot.data!.docs.length,
                 itemBuilder: (context, index) {
                   var trip = snapshot.data!.docs[index];
-                  return Card(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-                    child: ListTile(
+                  return ListTile(
                       title: Text("Fare: ${trip['fare']} ETB"),
-                      subtitle: Text("Commission: ${trip['commission']} ETB"),
-                    ),
-                  );
+                      subtitle: Text("Commission: ${trip['commission']} ETB"));
                 },
               );
             },

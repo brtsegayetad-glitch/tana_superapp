@@ -71,7 +71,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     }
   }
 
-  // Restored: This is the function the error was talking about!
   Future<void> _makePhoneCall(String phoneNumber) async {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
@@ -279,36 +278,58 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                           color: Colors.teal, size: 35),
                     ),
                   ...masterDirectory.map((loc) {
+                    String cat = loc.category.toLowerCase();
+                    bool isAnchor = cat.contains("square") ||
+                        cat.contains("hospital") ||
+                        cat.contains("church") ||
+                        cat.contains("mosque");
+
+                    // Hide small places when zoomed out to keep map clean
+                    if (!isAnchor && _currentZoom < 14.5) {
+                      return const Marker(
+                          point: LatLng(0, 0), child: SizedBox.shrink());
+                    }
+
                     return Marker(
                       point: loc.coordinates,
-                      width: 120,
+                      width: 120, // Increased width to fit names better
                       height: 80,
                       child: Column(
                         children: [
                           Icon(
-                            loc.category == "Church"
-                                ? Icons.church
-                                : Icons.school,
-                            color: loc.category == "Church"
-                                ? Colors.purple
-                                : Colors.orange,
-                            size: 20,
+                            getMarkerIcon(loc.category),
+                            color: getMarkerColor(loc.category),
+                            size: isAnchor ? 30 : 20,
                           ),
-                          if (_currentZoom > 16.0)
+                          // Logic: Show names ALWAYS for anchors, or when zoomed in for others
+                          if (isAnchor || _currentZoom > 15.5)
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 2),
+                              margin: const EdgeInsets.only(top: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.8),
-                                borderRadius: BorderRadius.circular(5),
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4),
+                                // --- THE SHADOW TO HIDE THE MESSY MAP NAMES ---
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 4,
+                                    offset: const Offset(1, 1),
+                                  ),
+                                ],
+                                border: Border.all(
+                                    color: getMarkerColor(loc.category).withOpacity(0.8),
+                                    width: 1),
                               ),
                               child: Text(
                                 loc.nameAmh,
-                                style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black),
+                                style: TextStyle(
+                                  fontSize: isAnchor ? 11 : 9,
+                                  fontWeight: isAnchor ? FontWeight.bold : FontWeight.normal,
+                                  color: Colors.black,
+                                ),
                                 textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                         ],
@@ -409,7 +430,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                         color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 12),
-              // RESTORED: THE CALL BUTTON
               OutlinedButton.icon(
                 onPressed: () => _makePhoneCall("8000"),
                 icon: const Icon(Icons.phone_callback, color: Colors.green),
@@ -511,5 +531,52 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     _phoneController.dispose();
     _destinationController.dispose();
     super.dispose();
+  }
+
+  IconData getMarkerIcon(String category) {
+    String cat = category.toLowerCase().trim();
+    if (cat.contains("school") ||
+        cat.contains("university") ||
+        cat.contains("college")) {
+      return Icons.school;
+    }
+    if (cat.contains("church")) return Icons.church;
+    if (cat.contains("mosque")) return Icons.mosque;
+    if (cat.contains("pension") || cat.contains("hotel")) return Icons.hotel;
+    if (cat.contains("apartment") || cat.contains("building")) {
+      return Icons.business;
+    }
+    if (cat.contains("clinic") || cat.contains("hospital")) {
+      return Icons.local_hospital;
+    }
+    if (cat.contains("restaurant") || cat.contains("cafe")) {
+      return Icons.restaurant;
+    }
+    if (cat.contains("shop") || cat.contains("mall") || cat.contains("market")) {
+      return Icons.shopping_bag;
+    }
+    if (cat.contains("bank") || cat.contains("atm")) {
+      return Icons.account_balance_wallet;
+    }
+    if (cat.contains("square") || cat.contains("dipo")) return Icons.explore;
+    return Icons.location_on;
+  }
+
+  Color getMarkerColor(String category) {
+    String cat = category.toLowerCase().trim();
+    if (cat.contains("square") || cat.contains("dipo")) {
+      return Colors.deepOrange;
+    }
+    if (cat.contains("church") || cat.contains("mosque")) return Colors.purple;
+    if (cat.contains("hospital") || cat.contains("clinic")) return Colors.red;
+    if (cat.contains("school") || cat.contains("university")) {
+      return Colors.orange;
+    }
+    if (cat.contains("restaurant")) return Colors.green;
+    if (cat.contains("pension") || cat.contains("hotel")) {
+      return Colors.blueGrey;
+    }
+    if (cat.contains("bank")) return Colors.amber[800]!;
+    return Colors.teal;
   }
 }
