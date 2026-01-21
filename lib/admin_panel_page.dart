@@ -479,7 +479,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
               keyboardType: TextInputType.phone),
           const SizedBox(height: 15),
           DropdownButtonFormField<String>(
-            value: _selectedHotspot,
+            initialValue: _selectedHotspot,
             items: _bahirDarHotspots
                 .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                 .toList(),

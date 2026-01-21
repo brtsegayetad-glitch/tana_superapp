@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'bajaj_driver_page.dart';
 import 'bajaj_passenger_page.dart';
-import 'admin_panel_page.dart'; // ማሳሰቢያ፡ የፋይሉ ስም በዚህ መጠራቱን አረጋግጥ
+import 'admin_panel_page.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -48,6 +48,7 @@ class _AuthPageState extends State<AuthPage> {
 
     setState(() => _isLoading = true);
 
+    // Chromebook ላይ በቀላሉ ለመግባት ስልኩን ወደ ኢሜይል እንቀይረዋለን
     String fakeEmail = "${_phoneController.text.trim()}@hullu.com";
     String password = _passwordController.text.trim();
 
@@ -61,11 +62,16 @@ class _AuthPageState extends State<AuthPage> {
           email: fakeEmail,
           password: password,
         );
+
+        // ከ Firestore ውስጥ የተጠቃሚውን መረጃ እናመጣለን
         var userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(cred.user!.uid)
             .get();
-        finalRole = userDoc.data()?['role'];
+
+        if (userDoc.exists) {
+          finalRole = userDoc.data()?['role'];
+        }
       } else {
         // --- REGISTER LOGIC ---
         UserCredential credential =
@@ -82,7 +88,7 @@ class _AuthPageState extends State<AuthPage> {
           'uid': uid,
           'fullName': _nameController.text.trim(),
           'phoneNumber': _phoneController.text.trim(),
-          'role': _selectedRole,
+          'role': _selectedRole, // Register ሲያደርጉ Driver ወይም Passenger ብቻ
           'createdAt': FieldValue.serverTimestamp(),
           'isRoutePaid': false,
         };
@@ -92,6 +98,7 @@ class _AuthPageState extends State<AuthPage> {
           userData['associationId'] = assocId;
           userData['nationalId'] = _nationalIdController.text.trim();
 
+          // ለሹፌሮች የተለየ ዳታቤዝ እንፈጥራለን
           await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
             'name': _nameController.text.trim(),
             'plate': _plateController.text.trim(),
@@ -101,15 +108,6 @@ class _AuthPageState extends State<AuthPage> {
             'uid': uid,
             'phoneNumber': _phoneController.text.trim(),
             'total_debt': 0.0,
-          });
-
-          await FirebaseFirestore.instance.collection('wallets').doc(uid).set({
-            'fullName': _nameController.text.trim(),
-            'associationId': assocId,
-            'isRoutePaid': false,
-            'lastPaymentDate': null,
-            'plateNumber': _plateController.text.trim(),
-            'nationalId': _nationalIdController.text.trim(),
           });
         }
 
@@ -121,11 +119,17 @@ class _AuthPageState extends State<AuthPage> {
 
       if (!mounted) return;
 
-      // --- NAVIGATION LOGIC ---
+      // --- NAVIGATION LOGIC (የተስተካከለ) ---
       Widget nextScreen;
-      if (finalRole == 'manager') {
+
+      // ሮሉን ወደ ትንንሽ ፊደላት ቀይረን በትክክል ቼክ እናደርጋለን
+      String normalizedRole =
+          (finalRole ?? "passenger").toString().toLowerCase().trim();
+
+      if (normalizedRole == 'manager') {
+        print("Access Granted: Moving to Manager Panel");
         nextScreen = const AdminPanelPage();
-      } else if (finalRole == 'Driver') {
+      } else if (normalizedRole == 'driver') {
         nextScreen = const BajajDriverPage();
       } else {
         nextScreen = const BajajPassengerPage();
@@ -136,8 +140,8 @@ class _AuthPageState extends State<AuthPage> {
         (route) => false,
       );
     } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message ?? "Error")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message ?? "Authentication Error")));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -163,6 +167,8 @@ class _AuthPageState extends State<AuthPage> {
                     style: TextStyle(
                         fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 const SizedBox(height: 30),
+
+                // Phone Number Field
                 TextFormField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
@@ -174,6 +180,8 @@ class _AuthPageState extends State<AuthPage> {
                       val!.length < 10 ? "Enter valid phone" : null,
                 ),
                 const SizedBox(height: 15),
+
+                // Password Field
                 TextFormField(
                   controller: _passwordController,
                   obscureText: true,
@@ -182,10 +190,12 @@ class _AuthPageState extends State<AuthPage> {
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.lock)),
                   validator: (val) =>
-                      val!.length < 6 ? "Password too short" : null,
+                      val!.length < 6 ? "Password must be 6+ chars" : null,
                 ),
+
                 if (!_isLogin) ...[
                   const SizedBox(height: 15),
+                  // Name Field
                   TextFormField(
                     controller: _nameController,
                     decoration: const InputDecoration(
@@ -195,6 +205,8 @@ class _AuthPageState extends State<AuthPage> {
                     validator: (val) => val!.isEmpty ? "Enter name" : null,
                   ),
                   const SizedBox(height: 15),
+
+                  // Role Selector
                   DropdownButtonFormField(
                     initialValue: _selectedRole,
                     decoration: const InputDecoration(
@@ -206,17 +218,15 @@ class _AuthPageState extends State<AuthPage> {
                     onChanged: (val) =>
                         setState(() => _selectedRole = val as String),
                   ),
+
                   if (_selectedRole == 'Driver') ...[
                     const SizedBox(height: 15),
                     TextFormField(
                       controller: _nationalIdController,
                       decoration: const InputDecoration(
                           labelText: "National ID Number",
-                          hintText: "As shown on your ID card",
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.badge)),
-                      validator: (val) =>
-                          val!.isEmpty ? "National ID is required" : null,
                     ),
                     const SizedBox(height: 15),
                     TextFormField(
@@ -225,7 +235,6 @@ class _AuthPageState extends State<AuthPage> {
                           labelText: "Bajaj Plate Number",
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.numbers)),
-                      validator: (val) => val!.isEmpty ? "Enter plate" : null,
                     ),
                     const SizedBox(height: 15),
                     DropdownButtonFormField(
