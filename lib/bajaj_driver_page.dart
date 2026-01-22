@@ -6,7 +6,9 @@ import 'package:vibration/vibration.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
-import 'driver_route_page.dart'; // Ensure this file exists
+
+import 'driver_route_page.dart';
+import 'app_drawer.dart';
 
 class BajajDriverPage extends StatefulWidget {
   const BajajDriverPage({super.key});
@@ -16,20 +18,18 @@ class BajajDriverPage extends StatefulWidget {
 }
 
 class _BajajDriverPageState extends State<BajajDriverPage> {
-  // --- STATE & CONTROLLERS ---
   int _selectedIndex = 0;
   final TextEditingController _otpInputController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isOnline = true;
   StreamSubscription<Position>? _driverPositionStream;
-
   final List<String> _ignoredRideIds = [];
 
-  // AUTH SYNCED DATA
   String? activeTripId;
   String _currentDriverId = "";
   String _driverName = "Loading...";
   String _plateNumber = "";
+  String? _currentUserPhone;
 
   @override
   void initState() {
@@ -45,12 +45,14 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           .collection('users')
           .doc(_currentDriverId)
           .get();
-
       if (doc.exists) {
-        setState(() {
-          _driverName = doc.data()?['fullName'] ?? "Driver";
-          _plateNumber = doc.data()?['plateNumber'] ?? "No Plate";
-        });
+        if (mounted) {
+          setState(() {
+            _driverName = doc.data()?['fullName'] ?? "Driver";
+            _plateNumber = doc.data()?['plateNumber'] ?? "No Plate";
+            _currentUserPhone = doc.data()?['phoneNumber'];
+          });
+        }
       }
     }
     _initDriverLogic();
@@ -73,14 +75,12 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     _driverPositionStream?.cancel();
     _driverPositionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
+          accuracy: LocationAccuracy.high, distanceFilter: 10),
     ).listen((Position position) {
       if (_isOnline && activeTripId != null) {
         FirebaseFirestore.instance
             .collection('ride_requests')
-            .doc(activeTripId)
+            .doc(activeTripId!)
             .update({
           'driver_lat': position.latitude,
           'driver_lng': position.longitude,
@@ -99,7 +99,8 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           var data = change.doc.data() as Map<String, dynamic>;
-          _showAdminNotification(change.doc.id, data['title'], data['message']);
+          _showAdminNotification(
+              change.doc.id, data['title'] ?? "Notice", data['message'] ?? "");
         }
       }
     });
@@ -112,14 +113,8 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-            const SizedBox(width: 10),
-            Text(title),
-          ],
-        ),
-        content: Text(message),
+        title: Text(title),
+        content: SingleChildScrollView(child: Text(message)),
         actions: [
           TextButton(
             onPressed: () async {
@@ -130,7 +125,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
               if (!mounted) return;
               Navigator.pop(context);
             },
-            child: const Text("OK, UNDERSTOOD"),
+            child: const Text("OK"),
           ),
         ],
       ),
@@ -165,16 +160,14 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     bool confirm = await showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text("Cancel Trip?"),
-            content: const Text(
-                "This will release the passenger for other drivers."),
+            title: const Text("Cancel?"),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(context, false),
                   child: const Text("NO")),
               TextButton(
                   onPressed: () => Navigator.pop(context, true),
-                  child: const Text("YES, CANCEL")),
+                  child: const Text("YES")),
             ],
           ),
         ) ??
@@ -183,11 +176,10 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     if (confirm) {
       await FirebaseFirestore.instance
           .collection('ride_requests')
-          .doc(activeTripId)
+          .doc(activeTripId!)
           .update({
         'status': 'searching',
         'driver_id': null,
-        'driver_name': null,
       });
       setState(() {
         activeTripId = null;
@@ -200,7 +192,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     if (_otpInputController.text.trim() == correctOtp && activeTripId != null) {
       await FirebaseFirestore.instance
           .collection('ride_requests')
-          .doc(activeTripId)
+          .doc(activeTripId!)
           .update({'status': 'started'});
       _otpInputController.clear();
       FocusScope.of(context).unfocus();
@@ -214,9 +206,9 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     if (activeTripId == null) return;
     var tripSnapshot = await FirebaseFirestore.instance
         .collection('ride_requests')
-        .doc(activeTripId)
+        .doc(activeTripId!)
         .get();
-    var tripData = tripSnapshot.data() ?? {};
+    var currentTripData = tripSnapshot.data() ?? {};
     double commission = price * 0.10;
 
     await FirebaseFirestore.instance.collection('ride_history').add({
@@ -225,7 +217,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       'plate': _plateNumber,
       'fare': price,
       'commission': commission,
-      'distance_km': tripData['distance_km'] ?? "0.0",
+      'distance_km': currentTripData['distance_km'] ?? "0.0",
       'timestamp': FieldValue.serverTimestamp(),
     });
 
@@ -238,7 +230,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
     await FirebaseFirestore.instance
         .collection('ride_requests')
-        .doc(activeTripId)
+        .doc(activeTripId!)
         .update({'status': 'completed'});
     setState(() => activeTripId = null);
   }
@@ -250,36 +242,36 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Choose screen based on Bottom Nav selection
     Widget currentScreen;
     if (_selectedIndex == 0) {
       currentScreen = _buildHomeScreen();
     } else if (_selectedIndex == 1) {
       currentScreen = _buildWalletScreen();
     } else {
-      currentScreen = const DriverRoutePage(); // Third tab for Permit
+      currentScreen = const DriverRoutePage();
     }
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: Text(_selectedIndex == 0
-            ? "Tana Driver: $_driverName"
-            : _selectedIndex == 1
-                ? "My Wallet"
-                : "Route Permit"),
+        title: FittedBox(
+            child: Text(_selectedIndex == 0
+                ? "Driver: $_driverName"
+                : _selectedIndex == 1
+                    ? "Wallet"
+                    : "Permit")),
         backgroundColor: Colors.teal[800],
         foregroundColor: Colors.white,
         actions: [
           if (_selectedIndex == 0)
             Switch(
-              value: _isOnline,
-              onChanged: (v) => setState(() => _isOnline = v),
-              activeTrackColor: Colors.greenAccent,
-            )
+                value: _isOnline,
+                onChanged: (v) => setState(() => _isOnline = v),
+                activeTrackColor: Colors.greenAccent)
         ],
       ),
-      body: currentScreen,
+      drawer: AppDrawer(userPhone: _currentUserPhone),
+      body: SafeArea(child: currentScreen),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
@@ -307,46 +299,39 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
         if (!walletSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        bool isPaid = false;
-        if (walletSnapshot.data!.exists) {
-          isPaid = walletSnapshot.data!['isRoutePaid'] ?? false;
-        }
+        bool isPaid = walletSnapshot.data!.exists
+            ? (walletSnapshot.data!['isRoutePaid'] ?? false)
+            : false;
 
         if (!isPaid) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.warning_amber_rounded,
-                    size: 80, color: Colors.red),
-                const Text("WEEKLY PERMIT EXPIRED",
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                const Padding(
-                  padding: EdgeInsets.all(25.0),
-                  child: Text(
-                      "You must pay your weekly route association fee before you can accept new rides.",
-                      textAlign: TextAlign.center),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal[800]),
-                  onPressed: () => setState(() => _selectedIndex = 2),
-                  child: const Text("GO TO PAYMENT",
-                      style: TextStyle(color: Colors.white)),
-                )
-              ],
+          return SingleChildScrollView(
+            child: Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  const Icon(Icons.warning_amber_rounded,
+                      size: 80, color: Colors.red),
+                  const Text("PERMIT EXPIRED",
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text("Please pay your weekly fee.",
+                          textAlign: TextAlign.center)),
+                  ElevatedButton(
+                      onPressed: () => setState(() => _selectedIndex = 2),
+                      child: const Text("GO TO PAYMENT")),
+                ],
+              ),
             ),
           );
         }
 
-        // Normal Ride Logic
         if (activeTripId != null) {
           return StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('ride_requests')
-                .doc(activeTripId)
+                .doc(activeTripId!)
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData || !snapshot.data!.exists) {
@@ -370,22 +355,12 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
               .where('status', whereIn: ['searching', 'pending']).snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const Center(child: Text("Waiting for requests..."));
+              return const Center(child: Text("Waiting..."));
             }
             var docs = snapshot.data!.docs
                 .where((d) => !_ignoredRideIds.contains(d.id))
                 .toList();
-            if (docs.isEmpty) {
-              return const Center(child: Text("Waiting for new requests..."));
-            }
-
-            docs.sort((a, b) {
-              var aTime = a['timestamp'] as Timestamp?;
-              var bTime = b['timestamp'] as Timestamp?;
-              return (bTime ?? Timestamp.now())
-                  .compareTo(aTime ?? Timestamp.now());
-            });
-
+            if (docs.isEmpty) return const Center(child: Text("Waiting..."));
             var doc = docs.first;
             var data = doc.data() as Map<String, dynamic>;
             _triggerAlert();
@@ -398,43 +373,36 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   Widget _buildRequestPopup(
       Map<String, dynamic> data, int price, String rideId) {
-    bool isCallCenter = data['type'] == 'call_center';
     return Center(
       child: SingleChildScrollView(
         child: Card(
           margin: const EdgeInsets.all(20),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Padding(
-            padding: const EdgeInsets.all(25),
+            padding: const EdgeInsets.all(20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(isCallCenter ? "OFFLINE CALL" : "NEW RIDE",
-                    style: const TextStyle(
+                const Text("NEW RIDE REQUEST",
+                    style: TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.teal)),
-                const Divider(height: 30),
-                Text(isCallCenter ? data['pickup_location'] : "$price ETB",
-                    style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green)),
+                FittedBox(
+                    child: Text("$price ETB",
+                        style: const TextStyle(
+                            fontSize: 40,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green))),
+                Text("To: ${data['destination'] ?? 'Piazza'}",
+                    textAlign: TextAlign.center),
                 const SizedBox(height: 20),
-                Text("To: ${data['destination'] ?? 'Piazza area'}",
-                    style: const TextStyle(fontSize: 18)),
-                const SizedBox(height: 30),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal[800],
-                      minimumSize: const Size(double.infinity, 55)),
-                  onPressed: () => _acceptRide(rideId),
-                  child: const Text("ACCEPT RIDE",
-                      style: TextStyle(color: Colors.white)),
-                ),
+                SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                        onPressed: () => _acceptRide(rideId),
+                        child: const Text("ACCEPT"))),
                 TextButton(
                     onPressed: () =>
                         setState(() => _ignoredRideIds.add(rideId)),
-                    child: const Text("IGNORE / DECLINE",
+                    child: const Text("IGNORE",
                         style: TextStyle(color: Colors.red))),
               ],
             ),
@@ -450,31 +418,25 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       child: Column(
         children: [
           ListTile(
-            title: const Text("Passenger Found"),
-            trailing: IconButton(
-                icon: const Icon(Icons.phone, color: Colors.green),
-                onPressed: () =>
-                    _launchPhone(rideData['passenger_phone'] ?? "")),
-          ),
+              title: const Text("Passenger Found"),
+              trailing: IconButton(
+                  icon: const Icon(Icons.phone, color: Colors.green),
+                  onPressed: () =>
+                      _launchPhone(rideData['passenger_phone'] ?? ""))),
           TextField(
               controller: _otpInputController,
               decoration: const InputDecoration(
-                  labelText: "Enter 4-Digit OTP", border: OutlineInputBorder()),
+                  labelText: "OTP Code", border: OutlineInputBorder()),
               keyboardType: TextInputType.number),
           const SizedBox(height: 20),
-          ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50)),
-              onPressed: () => _verifyAndStart(rideData['otp'] ?? ""),
-              child: const Text("START TRIP")),
-          const SizedBox(height: 10),
-          OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.red),
-                  minimumSize: const Size(double.infinity, 45)),
+          SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                  onPressed: () => _verifyAndStart(rideData['otp'] ?? ""),
+                  child: const Text("START TRIP"))),
+          TextButton(
               onPressed: _cancelActiveTrip,
-              child: const Text("CANCEL TRIP",
-                  style: TextStyle(color: Colors.red))),
+              child: const Text("CANCEL", style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -482,75 +444,131 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   Widget _buildInTripScreen(int price, String phone) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.local_taxi, size: 80, color: Colors.teal),
-          const Text("IN PROGRESS",
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
-          ElevatedButton(
-              onPressed: () => _finishTrip(price),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text("FINISH & COLLECT CASH",
-                  style: TextStyle(color: Colors.white))),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            const Icon(Icons.local_taxi, size: 80, color: Colors.teal),
+            const Text("TRIP IN PROGRESS"),
+            const SizedBox(height: 20),
+            ElevatedButton(
+                onPressed: () => _finishTrip(price),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text("FINISH & COLLECT CASH",
+                    style: TextStyle(color: Colors.white))),
+          ],
+        ),
       ),
     );
   }
 
+  // --- WALLET FIX ---
   Widget _buildWalletScreen() {
-    return Column(
-      children: [
-        StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(_currentDriverId)
-              .snapshots(),
-          builder: (context, snapshot) {
-            double debt = (snapshot.hasData && snapshot.data!.exists)
-                ? (snapshot.data!['total_debt'] ?? 0.0).toDouble()
-                : 0.0;
-            return Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(30),
-              color: Colors.teal[700],
-              child: Column(children: [
-                const Text("COMMISSION DEBT",
-                    style: TextStyle(color: Colors.white70)),
-                Text("${debt.toStringAsFixed(2)} ETB",
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 38,
-                        fontWeight: FontWeight.bold)),
-              ]),
-            );
-          },
-        ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('ride_history')
-                .where('driver_id', isEqualTo: _currentDriverId)
-                .orderBy('timestamp', descending: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              return ListView.builder(
-                itemCount: snapshot.data!.docs.length,
-                itemBuilder: (context, index) {
-                  var trip = snapshot.data!.docs[index];
-                  return ListTile(
-                      title: Text("Fare: ${trip['fare']} ETB"),
-                      subtitle: Text("Commission: ${trip['commission']} ETB"));
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(_currentDriverId)
+          .snapshots(),
+      builder: (context, userSnapshot) {
+        // ዳታው ገና እየመጣ ከሆነ ወይም ባዶ ከሆነ 0.0 እንዲያሳይ እናደርጋለን
+        double debt = 0.0;
+
+        if (userSnapshot.hasData && userSnapshot.data!.exists) {
+          var userData = userSnapshot.data!.data() as Map<String, dynamic>;
+          // እዚህ ጋር ነው ጥንቃቄ የሚያስፈልገው፡ field መኖሩን እናረጋግጣለን
+          if (userData.containsKey('total_debt')) {
+            debt = (userData['total_debt'] ?? 0.0).toDouble();
+          }
+        }
+
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // የዕዳ ማሳያ ሳጥን
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: Colors.teal[800],
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(20),
+                    bottomRight: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    const Text("ጠቅላላ የኮሚሽን ዕዳ",
+                        style: TextStyle(color: Colors.white70, fontSize: 16)),
+                    const SizedBox(height: 10),
+                    FittedBox(
+                      // ረጅም ቁጥር ቢሆን እንኳን ስክሪኑን እንዳይሰብር ያደርጋል
+                      child: Text("${debt.toStringAsFixed(2)} ETB",
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 35,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Padding(
+                padding: EdgeInsets.all(15.0),
+                child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text("የጉዞ ታሪክ",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18))),
+              ),
+
+              // የታሪክ ዝርዝር
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('ride_history')
+                    .where('driver_id', isEqualTo: _currentDriverId)
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (context, historySnapshot) {
+                  if (historySnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (!historySnapshot.hasData ||
+                      historySnapshot.data!.docs.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.only(top: 20),
+                      child: Text("ምንም የታሪክ መዝገብ የለም"),
+                    );
+                  }
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: historySnapshot.data!.docs.length,
+                    itemBuilder: (context, index) {
+                      var trip = historySnapshot.data!.docs[index].data()
+                          as Map<String, dynamic>;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 15, vertical: 5),
+                        child: ListTile(
+                          leading: const Icon(Icons.check_circle,
+                              color: Colors.green),
+                          title: Text("ዋጋ: ${trip['fare'] ?? 0} ETB"),
+                          subtitle:
+                              Text("ኮሚሽን: ${trip['commission'] ?? 0} ETB"),
+                        ),
+                      );
+                    },
+                  );
                 },
-              );
-            },
+              ),
+              const SizedBox(height: 30),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 

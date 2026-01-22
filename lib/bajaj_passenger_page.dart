@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'location_data.dart';
+import 'app_drawer.dart'; // ይህን መስመር ጨምር
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -239,10 +240,15 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   @override
   Widget build(BuildContext context) {
     final LatLng activeCenter = myRealPosition ?? bahirDarCenter;
+
     return Scaffold(
+      // --- 1. ድራወሩ እዚህ ተጨምሯል ---
+      drawer: AppDrawer(userPhone: _phoneController.text),
+
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
+          // ካርታው
           FlutterMap(
             options: MapOptions(
               initialCenter: activeCenter,
@@ -284,7 +290,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                         cat.contains("church") ||
                         cat.contains("mosque");
 
-                    // Hide small places when zoomed out to keep map clean
                     if (!isAnchor && _currentZoom < 14.5) {
                       return const Marker(
                           point: LatLng(0, 0), child: SizedBox.shrink());
@@ -292,7 +297,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
 
                     return Marker(
                       point: loc.coordinates,
-                      width: 120, // Increased width to fit names better
+                      width: 120,
                       height: 80,
                       child: Column(
                         children: [
@@ -301,15 +306,14 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                             color: getMarkerColor(loc.category),
                             size: isAnchor ? 30 : 20,
                           ),
-                          // Logic: Show names ALWAYS for anchors, or when zoomed in for others
                           if (isAnchor || _currentZoom > 15.5)
                             Container(
                               margin: const EdgeInsets.only(top: 2),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(4),
-                                // --- THE SHADOW TO HIDE THE MESSY MAP NAMES ---
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withOpacity(0.3),
@@ -318,14 +322,17 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                                   ),
                                 ],
                                 border: Border.all(
-                                    color: getMarkerColor(loc.category).withOpacity(0.8),
+                                    color: getMarkerColor(loc.category)
+                                        .withOpacity(0.8),
                                     width: 1),
                               ),
                               child: Text(
                                 loc.nameAmh,
                                 style: TextStyle(
                                   fontSize: isAnchor ? 11 : 9,
-                                  fontWeight: isAnchor ? FontWeight.bold : FontWeight.normal,
+                                  fontWeight: isAnchor
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                   color: Colors.black,
                                 ),
                                 textAlign: TextAlign.center,
@@ -340,6 +347,29 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               ),
             ],
           ),
+
+          // --- 2. የሜኑ አዝራር (ድራወሩን ለመክፈት) ---
+          Positioned(
+            top: 50,
+            left: 20,
+            child: Builder(
+              builder: (context) => Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 5)],
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.menu, color: Colors.teal, size: 30),
+                  onPressed: () {
+                    Scaffold.of(context).openDrawer();
+                  },
+                ),
+              ),
+            ),
+          ),
+
+          // የታችኛው የመጠየቂያ ፎርም (Sheet)
           tripStatus == "idle" ? _buildRequestSheet() : _buildLiveRideSheet(),
         ],
       ),
@@ -552,7 +582,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     if (cat.contains("restaurant") || cat.contains("cafe")) {
       return Icons.restaurant;
     }
-    if (cat.contains("shop") || cat.contains("mall") || cat.contains("market")) {
+    if (cat.contains("shop") ||
+        cat.contains("mall") ||
+        cat.contains("market")) {
       return Icons.shopping_bag;
     }
     if (cat.contains("bank") || cat.contains("atm")) {

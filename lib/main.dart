@@ -5,7 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
-// Your Actual App Pages
+// ገጾች
 import 'driver_route_page.dart';
 import 'market_home_page.dart';
 import 'bajaj_passenger_page.dart';
@@ -33,6 +33,12 @@ class TanaSuperApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
+      // --- እዚህ ጋር ነው Logout ሲያደርጉ የሚሄዱበትን የምንመዘግበው ---
+      routes: {
+        '/login': (context) => const AuthPage(),
+        '/home': (context) => const HomeScreen(),
+        '/admin': (context) => const AdminPanelPage(),
+      },
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -40,6 +46,7 @@ class TanaSuperApp extends StatelessWidget {
             return const Scaffold(
                 body: Center(child: CircularProgressIndicator()));
           }
+
           if (snapshot.hasData) {
             return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance
@@ -54,6 +61,18 @@ class TanaSuperApp extends StatelessWidget {
                 if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
                   return const AuthPage();
                 }
+
+                var data = userSnapshot.data!.data() as Map<String, dynamic>;
+                String role = (data['role'] ?? '').toString().toLowerCase();
+                String phone = data['phoneNumber'] ?? '';
+
+                // ማኔጀር ወይም አድሚን ከሆኑ ወደ Admin Panel
+                if (role == 'superadmin' ||
+                    role == 'manager' ||
+                    phone == "0971732729") {
+                  return const AdminPanelPage();
+                }
+
                 return const HomeScreen();
               },
             );
@@ -75,10 +94,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  Future<void> _handleLogout() async {
-    await FirebaseAuth.instance.signOut();
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -93,87 +108,47 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         var userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-        String role = userData['role'] ?? 'Passenger';
+        String role =
+            (userData['role'] ?? 'passenger').toString().toLowerCase();
         String name = userData['fullName'] ?? 'User';
-        String myPhone = userData['phoneNumber'] ?? '';
-
-        // --- THE UPDATED ORDER OF PAGES ---
-        // 1. Ride (Passenger Map)
-        // 2. Driver (Bajaj Mode - Only for Drivers)
-        // 3. Route Pay (Permits - Only for Drivers)
-        // 4. Market (Hullugebeya)
 
         List<Widget> pages = [];
         List<BottomNavigationBarItem> navItems = [];
 
-        // 1. Ride (Always First)
+        // 1. Ride (ለሁሉም)
         pages.add(const BajajPassengerPage());
         navItems.add(const BottomNavigationBarItem(
-          icon: Icon(Icons.map_outlined),
-          activeIcon: Icon(Icons.map),
-          label: 'Ride',
-        ));
+            icon: Icon(Icons.map), label: 'Ride'));
 
-        // 2 & 3. Driver and Route (Only show if role is Driver)
-        if (role == 'Driver') {
+        // 2 & 3. Driver & Route (ለሾፌር ብቻ)
+        if (role == 'driver') {
           pages.add(const BajajDriverPage());
           navItems.add(const BottomNavigationBarItem(
-            icon: Icon(Icons.electric_rickshaw_outlined), // Bajaj Icon
-            activeIcon: Icon(Icons.electric_rickshaw),
-            label: 'Driver',
-          ));
+              icon: Icon(Icons.electric_rickshaw), label: 'Driver'));
 
           pages.add(const DriverRoutePage());
           navItems.add(const BottomNavigationBarItem(
-            icon: Icon(Icons.payments_outlined),
-            activeIcon: Icon(Icons.payments),
-            label: 'Route Pay',
-          ));
+              icon: Icon(Icons.payments), label: 'Route Pay'));
         }
 
-        // 4. Market (Always Last)
+        // 4. Market (ለሁሉም)
         pages.add(const TanaMarketPage());
         navItems.add(const BottomNavigationBarItem(
-          icon: Icon(Icons.storefront_outlined),
-          activeIcon: Icon(Icons.storefront),
-          label: 'Market',
-        ));
+            icon: Icon(Icons.storefront), label: 'Market'));
 
         return Scaffold(
           appBar: AppBar(
             backgroundColor: Colors.teal[800],
             foregroundColor: Colors.white,
-            title: GestureDetector(
-              onLongPress: () {
-                // Ensure phone matches your admin number
-                if (myPhone == "0923456789") {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const AdminPanelPage()),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Admin Portal Locked")),
-                  );
-                }
-              },
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.white70)),
-                  const Text("Tana SuperApp",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
+            title: Text(name, style: const TextStyle(fontSize: 18)),
             actions: [
               IconButton(
                 icon: const Icon(Icons.logout),
-                onPressed: _handleLogout,
+                tooltip: 'Logout',
+                onPressed: () async {
+                  await FirebaseAuth.instance.signOut();
+                  // Logout ሲያደርግ በቀጥታ ወደ AuthPage (Login) ይመለሳል
+                },
               ),
             ],
           ),
@@ -182,15 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
             currentIndex:
                 _selectedIndex >= navItems.length ? 0 : _selectedIndex,
             type: BottomNavigationBarType.fixed,
-            selectedItemColor: Colors.teal[800],
-            unselectedItemColor: Colors.blueGrey,
-            backgroundColor: Colors.white,
-            elevation: 10,
-            onTap: (index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
+            onTap: (index) => setState(() => _selectedIndex = index),
             items: navItems,
           ),
         );
