@@ -1,16 +1,13 @@
-// ignore_for_file: avoid_print
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
-// ገጾች
-import 'driver_route_page.dart';
-import 'market_home_page.dart';
+// Import all the pages we have created
+import 'registration_page.dart'; // This file contains the AuthPage class
 import 'bajaj_passenger_page.dart';
 import 'bajaj_driver_page.dart';
-import 'registration_page.dart';
 import 'admin_panel_page.dart';
 
 void main() async {
@@ -28,139 +25,92 @@ class TanaSuperApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Tana SuperApp',
+      title: 'Hullugebeya SuperApp',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        primarySwatch: Colors.teal,
         useMaterial3: true,
+        // Define a consistent color scheme
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
       ),
-      // --- እዚህ ጋር ነው Logout ሲያደርጉ የሚሄዱበትን የምንመዘግበው ---
+      // Define a route for login to handle logout navigation seamlessly
       routes: {
+        // Corrected: Using AuthPage instead of RegistrationPage
         '/login': (context) => const AuthPage(),
-        '/home': (context) => const HomeScreen(),
-        '/admin': (context) => const AdminPanelPage(),
       },
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-                body: Center(child: CircularProgressIndicator()));
-          }
-
-          if (snapshot.hasData) {
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(snapshot.data!.uid)
-                  .get(),
-              builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()));
-                }
-                if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
-                  return const AuthPage();
-                }
-
-                var data = userSnapshot.data!.data() as Map<String, dynamic>;
-                String role = (data['role'] ?? '').toString().toLowerCase();
-                String phone = data['phoneNumber'] ?? '';
-
-                // ማኔጀር ወይም አድሚን ከሆኑ ወደ Admin Panel
-                if (role == 'superadmin' ||
-                    role == 'manager' ||
-                    phone == "0971732729") {
-                  return const AdminPanelPage();
-                }
-
-                return const HomeScreen();
-              },
-            );
-          }
-          return const AuthPage();
-        },
-      ),
+      home: const AuthWrapper(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
+// This widget is the main entry point after the app starts.
+// It checks if a user is logged in and directs them accordingly.
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    return FutureBuilder<DocumentSnapshot>(
-      future:
-          FirebaseFirestore.instance.collection('users').doc(user?.uid).get(),
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
+        // Show a loading spinner while checking the authentication state
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        var userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-        String role =
-            (userData['role'] ?? 'passenger').toString().toLowerCase();
-        String name = userData['fullName'] ?? 'User';
-
-        List<Widget> pages = [];
-        List<BottomNavigationBarItem> navItems = [];
-
-        // 1. Ride (ለሁሉም)
-        pages.add(const BajajPassengerPage());
-        navItems.add(const BottomNavigationBarItem(
-            icon: Icon(Icons.map), label: 'Ride'));
-
-        // 2 & 3. Driver & Route (ለሾፌር ብቻ)
-        if (role == 'driver') {
-          pages.add(const BajajDriverPage());
-          navItems.add(const BottomNavigationBarItem(
-              icon: Icon(Icons.electric_rickshaw), label: 'Driver'));
-
-          pages.add(const DriverRoutePage());
-          navItems.add(const BottomNavigationBarItem(
-              icon: Icon(Icons.payments), label: 'Route Pay'));
+        // If a user is logged in, find their role and redirect them
+        if (snapshot.hasData) {
+          return RoleBasedRedirect(userId: snapshot.data!.uid);
         }
 
-        // 4. Market (ለሁሉም)
-        pages.add(const TanaMarketPage());
-        navItems.add(const BottomNavigationBarItem(
-            icon: Icon(Icons.storefront), label: 'Market'));
+        // If no user is logged in, show the registration/login page
+        // Corrected: Using AuthPage instead of RegistrationPage
+        return const AuthPage();
+      },
+    );
+  }
+}
 
-        return Scaffold(
-          appBar: AppBar(
-            backgroundColor: Colors.teal[800],
-            foregroundColor: Colors.white,
-            title: Text(name, style: const TextStyle(fontSize: 18)),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.logout),
-                tooltip: 'Logout',
-                onPressed: () async {
-                  await FirebaseAuth.instance.signOut();
-                  // Logout ሲያደርግ በቀጥታ ወደ AuthPage (Login) ይመለሳል
-                },
-              ),
-            ],
-          ),
-          body: pages[_selectedIndex >= pages.length ? 0 : _selectedIndex],
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex:
-                _selectedIndex >= navItems.length ? 0 : _selectedIndex,
-            type: BottomNavigationBarType.fixed,
-            onTap: (index) => setState(() => _selectedIndex = index),
-            items: navItems,
-          ),
-        );
+// This widget takes a user's ID, fetches their data from Firestore,
+// and redirects them to the correct home screen based on their role.
+class RoleBasedRedirect extends StatelessWidget {
+  final String userId;
+  const RoleBasedRedirect({super.key, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+      builder: (context, userSnapshot) {
+        // Show a loading spinner while fetching the user's document
+        if (userSnapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        // If the user's document doesn't exist (e.g., they didn't finish registration),
+        // send them back to the registration page.
+        if (userSnapshot.hasError || !userSnapshot.data!.exists) {
+          // Corrected: Using AuthPage instead of RegistrationPage
+          return const AuthPage();
+        }
+
+        // If the document exists, get the role
+        final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+        final role = (userData['role'] ?? 'passenger').toString().toLowerCase();
+
+        // Redirect to the appropriate screen based on the role
+        switch (role) {
+          case 'driver':
+            // Drivers go to their full-featured dashboard
+            return const BajajDriverPage();
+          case 'manager':
+          case 'superadmin':
+            // Admins and managers go to the admin panel
+            return const AdminPanelPage();
+          case 'passenger':
+          default:
+            // Passengers and any other roles default to the passenger map view
+            return const BajajPassengerPage();
+        }
       },
     );
   }

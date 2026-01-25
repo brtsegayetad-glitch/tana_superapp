@@ -192,7 +192,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     if (activeTripId == null) return;
     double commission = price * 0.10;
 
-    // የጉዞ ታሪክ መመዝገብ
+    // Log ride history
     await FirebaseFirestore.instance.collection('ride_history').add({
       'driver_id': _currentDriverId,
       'driver_name': _driverName,
@@ -203,13 +203,13 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       'service_type': '8000_call',
     });
 
-    // በ users ውስጥ ዕዳ እና የጉዞ ብዛት መደመር
+    // Increment debt and ride count in users collection
     await FirebaseFirestore.instance.collection('users').doc(_currentDriverId).update({
       'total_debt': FieldValue.increment(commission),
       'ride_count': FieldValue.increment(1),
     });
 
-    // 10 ጉዞ ከሞላ ማገድ
+    // Block driver if they reach 10 rides
     var doc = await FirebaseFirestore.instance.collection('users').doc(_currentDriverId).get();
     int rideCount = doc.data()?['ride_count'] ?? 0;
     if (rideCount >= 10) {
@@ -276,12 +276,12 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
         bool isBlocked = userData['is_blocked'] ?? false;
         int rideCount = userData['ride_count'] ?? 0;
 
-        // --- ማገጃ 1: የመንገድ ፈቃድ ---
+        // --- Block 1: Route Permit ---
         if (!isPaid) {
           return _warningUI(Icons.warning_amber_rounded, "PERMIT EXPIRED", "Please pay your weekly fee.", 2);
         }
 
-        // --- ማገጃ 2: የ 10 ጉዞ ገደብ ---
+        // --- Block 2: 10 Ride Limit ---
         if (isBlocked || rideCount >= 10) {
           return _warningUI(Icons.block, "LIMIT REACHED", "You have completed 10 rides. Please pay commission.", 1);
         }
