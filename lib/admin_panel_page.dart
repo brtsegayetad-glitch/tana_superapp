@@ -37,7 +37,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _isSuperAdmin ? 5 : 1, vsync: this);
+    _tabController = TabController(length: _isSuperAdmin ? 6 : 2, vsync: this);
     _loadUserData();
   }
 
@@ -59,7 +59,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           _managerAssociation = doc.data()?['associationId'];
           _currentUserPhone = doc.data()?['phoneNumber'];
           _tabController =
-              TabController(length: _isSuperAdmin ? 5 : 1, vsync: this);
+              TabController(length: _isSuperAdmin ? 6 : 2, vsync: this);
         });
       }
     }
@@ -124,6 +124,65 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
+  // --- PRICING SETUP ---
+  void _showPricingDialog() {
+    TextEditingController baseC = TextEditingController();
+    TextEditingController perKmC = TextEditingController();
+
+    // አሁን ያለውን ዋጋ መጀመሪያ ከ Firestore እናንብብ
+    FirebaseFirestore.instance
+        .collection('settings')
+        .doc('pricing')
+        .get()
+        .then((doc) {
+      if (doc.exists) {
+        baseC.text = (doc.data()?['base_fare'] ?? 50.0).toString();
+        perKmC.text = (doc.data()?['per_km'] ?? 15.0).toString();
+      }
+    });
+
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text("Set Ride Pricing (ETB)"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: baseC,
+                decoration: const InputDecoration(labelText: "Base Fare (መነሻ)"),
+                keyboardType: TextInputType.number),
+            TextField(
+                controller: perKmC,
+                decoration: const InputDecoration(labelText: "Per KM (በኪሎሜትር)"),
+                keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("CANCEL")),
+          ElevatedButton(
+            onPressed: () async {
+              await FirebaseFirestore.instance
+                  .collection('settings')
+                  .doc('pricing')
+                  .set({
+                'base_fare': double.tryParse(baseC.text) ?? 50.0,
+                'per_km': double.tryParse(perKmC.text) ?? 15.0,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+              if (mounted) Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Pricing Updated!")));
+            },
+            child: const Text("UPDATE"),
+          )
+        ],
+      ),
+    );
+  }
+
   // --- TEST DATA ---
   Future<void> _createTestTransaction() async {
     await FirebaseFirestore.instance.collection('transactions').add({
@@ -149,7 +208,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           children: [
             AppBar(
               title:
-                  const Text("Payment Receipt", style: TextStyle(fontSize: 16)),
+                  const Text("ID Card", style: TextStyle(fontSize: 16)),
               automaticallyImplyLeading: false,
               actions: [
                 IconButton(
@@ -198,13 +257,36 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     await batch.commit();
   }
 
+  // --- DATABASE LOGIC ---
+
+  // 1. የድሮውን _clearDriverDebt በዚህ ተካው
   Future<void> _clearDriverDebt(String docId) async {
-    await FirebaseFirestore.instance
-        .collection('drivers')
-        .doc(docId)
-        .update({'total_debt': 0.0});
+    final batch = FirebaseFirestore.instance.batch();
+
+    // በ 'drivers' ኮሌክሽን ውስጥ ዳታውን Reset ማድረግ
+    batch.update(FirebaseFirestore.instance.collection('drivers').doc(docId), {
+      'total_debt': 0,
+      'ride_count': 0,
+      'is_blocked': false,
+    });
+
+    // በ 'users' ኮሌክሽን ውስጥም ለውጡ እንዲንጸባረቅ ማድረግ (ለLogin ቼክ እንዲረዳ)
+    batch.update(FirebaseFirestore.instance.collection('users').doc(docId), {
+      'total_debt': 0,
+      'ride_count': 0,
+      'is_blocked': false,
+    });
+
+    await batch.commit();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Driver unblocked and debt cleared!")),
+      );
+    }
   }
 
+  // 2. ይህ እንዳለ ይቆያል (አልተቀየረም)
   Future<void> _approveManager(String uid) async {
     await FirebaseFirestore.instance
         .collection('users')
@@ -277,6 +359,48 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
+  Widget _buildDriversTab() {
+    Query query = FirebaseFirestore.instance.collection('drivers');
+    if (!_isSuperAdmin) {
+      query = query.where('associationId', isEqualTo: _managerAssociation);
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+        stream: query.snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text("No drivers found."));
+          }
+
+          var docs = snapshot.data!.docs;
+
+          return ListView.builder(
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              var driverData = docs[index].data() as Map<String, dynamic>;
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                child: ListTile(
+                  title: Text(driverData['name'] ?? 'No Name'),
+                  subtitle: Text(
+                      "Phone: ${driverData['phoneNumber'] ?? ''}\nAssociation: ${driverData['associationId'] ?? ''}"),
+                  trailing: driverData['idCardUrl'] != null
+                      ? IconButton(
+                          icon: const Icon(Icons.credit_card, color: Colors.teal),
+                          onPressed: () =>
+                              _showImageDialog(driverData['idCardUrl']!),
+                        )
+                      : null,
+                ),
+              );
+            },
+          );
+        });
+  }
+
   Widget _buildRideHailingDashboard() {
     return ListView(
       padding: const EdgeInsets.all(15),
@@ -292,21 +416,45 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance.collection('drivers').snapshots(),
           builder: (context, snapshot) {
-            if (!snapshot.hasData) return const SizedBox();
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
             var filtered = snapshot.data!.docs
                 .where((d) =>
                     (d['phoneNumber'] ?? "").toString().contains(_searchQuery))
                 .toList();
+
             return Column(
                 children: filtered.map((doc) {
               var driver = doc.data() as Map<String, dynamic>;
-              return ListTile(
-                title: Text(driver['name'] ?? "Unknown"),
-                subtitle: Text(
-                    "Debt: ${(driver['total_debt'] ?? 0.0).toStringAsFixed(2)} ETB"),
-                trailing: ElevatedButton(
+
+              // እዚህ ጋር ነው የምትቀይረው!
+              return Card(
+                child: ListTile(
+                  title: Text(driver['name'] ?? "Unknown"),
+                  subtitle: Text(
+                    "Debt: ${(driver['total_debt'] ?? 0.0).toStringAsFixed(2)} ETB",
+                    style: TextStyle(
+                      color: (driver['is_blocked'] ?? false)
+                          ? Colors.red
+                          : Colors.black54,
+                      fontWeight: (driver['is_blocked'] ?? false)
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  trailing: ElevatedButton(
                     onPressed: () => _clearDriverDebt(doc.id),
-                    child: const Text("CLEAR")),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: (driver['is_blocked'] ?? false)
+                          ? Colors.red
+                          : Colors.teal,
+                    ),
+                    child: Text(
+                        (driver['is_blocked'] ?? false) ? "UNBLOCK" : "CLEAR"),
+                  ),
+                ),
               );
             }).toList());
           },
@@ -482,6 +630,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             IconButton(
                 icon: const Icon(Icons.bug_report),
                 onPressed: _createTestTransaction),
+            // አዲሱ የዋጋ መቀየሪያ በተን
+            IconButton(
+                icon: const Icon(Icons.monetization_on),
+                onPressed: _showPricingDialog),
             IconButton(
                 icon: const Icon(Icons.settings),
                 onPressed: _showAssociationSetupDialog),
@@ -492,6 +644,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
           isScrollable: _isSuperAdmin,
           tabs: [
             const Tab(text: "Approvals"),
+            const Tab(text: "Drivers"), // New Tab
             if (_isSuperAdmin) ...[
               const Tab(text: "Ride Debt"),
               const Tab(text: "Route (5%)"),
@@ -506,6 +659,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         controller: _tabController,
         children: [
           _buildApprovalsTab(),
+          _buildDriversTab(), // New Tab View
           if (_isSuperAdmin) ...[
             _buildRideHailingDashboard(),
             _buildDashboardTab(),

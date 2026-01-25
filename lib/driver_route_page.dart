@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5,7 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter/services.dart'; // ለ Clipboard ኮፒ ስራ አስፈላጊ ነው
+import 'package:flutter/services.dart'; // Required for Clipboard
 import 'dart:io';
 import 'app_drawer.dart';
 
@@ -234,8 +235,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     double totalToPay = calculateTotalDue();
 
     return Scaffold(
-      // --- ድራወሩ እዚህ ተጨምሯል ---
-      // ለድራወሩ የሚያስፈልገውን ስልክ ቁጥር ከ Firebase እናመጣዋለን
       drawer: AppDrawer(
           userPhone: FirebaseAuth.instance.currentUser?.phoneNumber ?? ""),
 
@@ -256,7 +255,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            // ... (የቀረው የቦዲ ኮድህ ልክ እንደነበረው ይቀጥላል)
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(
