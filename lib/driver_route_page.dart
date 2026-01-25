@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -216,14 +215,31 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   Future<void> _launchTelebirr() async {
     double total = calculateTotalDue();
+    if (total <= 0) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("ምንም ክፍያ የለብዎትም")));
+      return;
+    }
+
+    if (assocMerchantId == "000000" || assocMerchantId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("የማህበሩ የቴሌብር መለያ አልተገኘም")));
+      return;
+    }
+
     final Uri url = Uri.parse(
         "telebirr://payment?merchantId=$assocMerchantId&amount=$total");
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
+
+    try {
+      await launchUrl(
+        url,
+        mode: LaunchMode.externalNonBrowserApplication,
+      );
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Telebirr app not found.")));
+        const SnackBar(content: Text("የቴሌብር አፕሊኬሽን በስልክዎ ላይ አልተገኘም")),
+      );
     }
   }
 
@@ -237,7 +253,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     return Scaffold(
       drawer: AppDrawer(
           userPhone: FirebaseAuth.instance.currentUser?.phoneNumber ?? ""),
-
       appBar: AppBar(
         title: Text(localizedText[lang]!['title']!),
         backgroundColor: Colors.teal[800],
