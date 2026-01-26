@@ -229,48 +229,53 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   Future<void> _launchTelebirr() async {
     double total = calculateTotalDue();
-    if (total <= 0) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("ምንም ክፍያ የለብዎትም")));
-      return;
-    }
 
-    // assocMerchantId አሁን ስልክ ቁጥር መሆኑን እናረጋግጣለን (ለምሳሌ 0912345678)
     if (assocMerchantId == "000000" || assocMerchantId.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("የማህበሩ ስልክ ቁጥር አልተገኘም")));
       return;
     }
 
-    // ወደ ስልክ ቁጥር ለመላክ (P2P) የሚጠቅም የቴሌብር ሊንክ
-    // ማሳሰቢያ፡ ቴሌብር በሊንክ ወደ ስልክ ቁጥር በቀጥታ ብሩን እንዲሞላ ካልፈቀደ፣ አፑን ብቻ እንዲከፍት እናደርገዋለን
-    final String telebirrUrl =
-        "telebirr://sendmoney?phoneNumber=$assocMerchantId&amount=$total";
-    final Uri url = Uri.parse(telebirrUrl);
+    // 1. መደበኛው የቴሌብር ሊንክ
+    final Uri telebirrUri = Uri.parse(
+        "telebirr://sendmoney?phoneNumber=$assocMerchantId&amount=$total");
 
     try {
+      // መጀመሪያ ሊንኩን ለመክፈት መሞከር
       bool launched =
-          await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+          await launchUrl(telebirrUri, mode: LaunchMode.externalApplication);
 
       if (!launched) {
-        // አፑ በቀጥታ ካልከፈተ፣ ቴሌብርን ብቻ እንዲከፍት እንሞክራለን
-        final Uri appUrl = Uri.parse("telebirr://");
-        await launchUrl(appUrl, mode: LaunchMode.externalApplication);
-
-        // ለሾፌሩ መረጃ ለመስጠት
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    "ቴሌብርን ከፈትን። እባክዎ ወደ $assocMerchantId ብር $total ይላኩ።")),
-          );
+        // 2. ካልተሳካ በቀጥታ አፑን በስሙ ለመፈለግ መሞከር
+        // ይህ ለ Android ስልኮች ብቻ ነው የሚሰራው
+        if (Platform.isAndroid) {
+          final Uri intentUri = Uri.parse(
+              "intent://sendmoney?phoneNumber=$assocMerchantId&amount=$total#Intent;scheme=telebirr;package=com.websprix.telebirr;end");
+          await launchUrl(intentUri, mode: LaunchMode.externalApplication);
+        } else {
+          throw 'Could not launch telebirr';
         }
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("የቴሌብር አፕሊኬሽን በስልክዎ ላይ አልተገኘም")),
-      );
+      // 3. ምንም ካልሰራ ለሾፌሩ መረጃውን መስጠት (Manual Payment)
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("ቴሌብር መክፈት አልተቻለም"),
+            content: Text(
+                "እባክዎ በቴሌብር ወደ $assocMerchantId ብር $total ይላኩ። ቁጥሩ ኮፒ ተደርጓል!"),
+            actions: [
+              TextButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: assocMerchantId));
+                    Navigator.pop(context);
+                  },
+                  child: const Text("እሺ (COPY)"))
+            ],
+          ),
+        );
+      }
     }
   }
 
