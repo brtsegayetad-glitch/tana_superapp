@@ -236,42 +236,52 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       return;
     }
 
-    // 1. መደበኛው የቴሌብር ሊንክ
-    final Uri telebirrUri = Uri.parse(
-        "telebirr://sendmoney?phoneNumber=$assocMerchantId&amount=$total");
+    // ቁጥሩን ለሾፌሩ አስቀድመን ኮፒ እናደርጋለን (ለማንኛውም ቢፈለግ)
+    await Clipboard.setData(ClipboardData(text: assocMerchantId));
+
+    // 1. መደበኛ ሙከራ (Regular App)
+    final Uri teleUri = Uri.parse("telebirr://");
+    // 2. ሱፐር አፕ ሙከራ (SuperApp)
+    final Uri superAppUri = Uri.parse("superapp://");
 
     try {
-      // መጀመሪያ ሊንኩን ለመክፈት መሞከር
+      // መጀመሪያ ሱፐር አፑን ለመክፈት መሞከር
       bool launched =
-          await launchUrl(telebirrUri, mode: LaunchMode.externalApplication);
+          await launchUrl(superAppUri, mode: LaunchMode.externalApplication);
 
       if (!launched) {
-        // 2. ካልተሳካ በቀጥታ አፑን በስሙ ለመፈለግ መሞከር
-        // ይህ ለ Android ስልኮች ብቻ ነው የሚሰራው
-        if (Platform.isAndroid) {
-          final Uri intentUri = Uri.parse(
-              "intent://sendmoney?phoneNumber=$assocMerchantId&amount=$total#Intent;scheme=telebirr;package=com.websprix.telebirr;end");
-          await launchUrl(intentUri, mode: LaunchMode.externalApplication);
-        } else {
-          throw 'Could not launch telebirr';
+        // ካልሆነ መደበኛውን ቴሌብር መሞከር
+        launched =
+            await launchUrl(teleUri, mode: LaunchMode.externalApplication);
+      }
+
+      if (launched) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  "ቴሌብር ተከፍቷል። ወደ $assocMerchantId ብር $total ይላኩ (ቁጥሩ ኮፒ ተደርጓል)"),
+              duration: const Duration(seconds: 6),
+            ),
+          );
         }
+      } else {
+        throw "Could not launch";
       }
     } catch (e) {
-      // 3. ምንም ካልሰራ ለሾፌሩ መረጃውን መስጠት (Manual Payment)
+      // 3. አፑ ጭራሽ ካልተገኘ (Play Store እንዲከፍት ማድረግ)
       if (mounted) {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text("ቴሌብር መክፈት አልተቻለም"),
+            title: const Text("ቴሌብር አልተገኘም"),
             content: Text(
-                "እባክዎ በቴሌብር ወደ $assocMerchantId ብር $total ይላኩ። ቁጥሩ ኮፒ ተደርጓል!"),
+                "የቴሌብር አፕሊኬሽን አልተከፈተም። እባክዎ በስልክዎ ወደ $assocMerchantId ብር $total ይላኩ።"),
             actions: [
               TextButton(
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: assocMerchantId));
-                    Navigator.pop(context);
-                  },
-                  child: const Text("እሺ (COPY)"))
+                onPressed: () => Navigator.pop(context),
+                child: const Text("እሺ"),
+              )
             ],
           ),
         );
