@@ -236,12 +236,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       return;
     }
 
-    // ቁጥሩን ለሾፌሩ አስቀድመን ኮፒ እናደርጋለን (ለማንኛውም ቢፈለግ)
+    // ቁጥሩን ለሾፌሩ አስቀድመን ኮፒ እናደርጋለን
     await Clipboard.setData(ClipboardData(text: assocMerchantId));
 
-    // 1. መደበኛ ሙከራ (Regular App)
+    // የቴሌብር መክፈቻ ሊንኮች
     final Uri teleUri = Uri.parse("telebirr://");
-    // 2. ሱፐር አፕ ሙከራ (SuperApp)
     final Uri superAppUri = Uri.parse("superapp://");
 
     try {
@@ -261,32 +260,33 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
             SnackBar(
               content: Text(
                   "ቴሌብር ተከፍቷል። ወደ $assocMerchantId ብር $total ይላኩ (ቁጥሩ ኮፒ ተደርጓል)"),
-              duration: const Duration(seconds: 6),
+              duration: const Duration(seconds: 8),
+              backgroundColor: Colors.green[700],
             ),
           );
         }
       } else {
-        throw "Could not launch";
+        // አፑ ካልተከፈተ ወደ ማኑዋል መልዕክት መሄድ
+        _showManualPayDialog(total);
       }
     } catch (e) {
-      // 3. አፑ ጭራሽ ካልተገኘ (Play Store እንዲከፍት ማድረግ)
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("ቴሌብር አልተገኘም"),
-            content: Text(
-                "የቴሌብር አፕሊኬሽን አልተከፈተም። እባክዎ በስልክዎ ወደ $assocMerchantId ብር $total ይላኩ።"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("እሺ"),
-              )
-            ],
-          ),
-        );
-      }
+      _showManualPayDialog(total);
     }
+  }
+
+  void _showManualPayDialog(double amount) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("ቴሌብር መክፈት አልተቻለም"),
+        content: Text(
+            "እባክዎ በቴሌብር ወደ $assocMerchantId ብር $amount ይላኩ። ቁጥሩ ኮፒ ተደርጓል!"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text("እሺ")),
+        ],
+      ),
+    );
   }
 
   @override
