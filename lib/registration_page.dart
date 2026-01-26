@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 // ማስታወሻ፡ Navigator አያስፈልገንም፣ ምክንያቱም main.dart በራሱ ስትሪሙን አይቶ ገጽ ይቀይራል
 
@@ -19,6 +20,7 @@ class _AuthPageState extends State<AuthPage> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _idNumberController = TextEditingController();
   final TextEditingController _plateController = TextEditingController();
 
   bool _isLogin = true;
@@ -59,12 +61,26 @@ class _AuthPageState extends State<AuthPage> {
     }
   }
 
-  Future<String> _uploadIdCard(String uid, File imageFile) async {
+ Future<String> _uploadIdCard(File imageFile) async {
     try {
-      final ref =
-          FirebaseStorage.instance.ref().child('id_cards').child('$uid.jpg');
-      await ref.putFile(imageFile);
-      return await ref.getDownloadURL();
+      // ከ api.imgbb.com ያገኘኸውን ቁጥር እዚህ ጋር በደንብ ተክተህ አስገባ
+      String apiKey = "858ef05f1ba7c5262fbb85ea9894c83f"; 
+      
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey'),
+      );
+
+      request.files.add(await http.MultipartFile.fromPath('image', imageFile.path));
+      
+      var response = await request.send();
+      if (response.statusCode == 200) {
+        var responseData = await response.stream.bytesToString();
+        var json = jsonDecode(responseData);
+        return json['data']['url']; // የፎቶው ሊንክ
+      } else {
+        throw Exception("ፎቶውን ወደ ImgBB መጫን አልተሳካም");
+      }
     } catch (e) {
       throw Exception("የመታወቂያ ካርድ መስቀል አልተሳካም: $e");
     }
@@ -72,7 +88,7 @@ class _AuthPageState extends State<AuthPage> {
 
   Future<void> _handleAuth() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     // For driver registration, ID card is mandatory
     if (!_isLogin && _selectedRole == 'Driver' && _idCardImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -83,7 +99,6 @@ class _AuthPageState extends State<AuthPage> {
       );
       return;
     }
-
 
     setState(() => _isLoading = true);
 
@@ -127,11 +142,11 @@ class _AuthPageState extends State<AuthPage> {
           String idCardUrl = await _uploadIdCard(uid, _idCardImage!);
           userData['idCardUrl'] = idCardUrl;
 
-
           // 1. በ drivers ኮሌክሽን ውስጥ
           await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
             'name': _nameController.text.trim(),
             'plate': _plateController.text.trim(),
+            'idNumber': _idNumberController.text.trim(), // ይህንን አዲስ ጨምር
             'associationId': assocId,
             'isOnline': false,
             'uid': uid,
@@ -279,9 +294,30 @@ class _AuthPageState extends State<AuthPage> {
                               decoration:
                                   const InputDecoration(labelText: "የታርጋ ቁጥር"),
                             ),
+
+                            // --- አዲሱ ኮድ ከዚህ በታች ይጀምራል ---
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: _idNumberController,
+                              decoration: const InputDecoration(
+                                labelText: "የብሔራዊ መታወቂያ ቁጥር",
+                                prefixIcon: Icon(Icons.badge),
+                              ),
+                              validator: (val) {
+                                if (!_isLogin &&
+                                    _selectedRole == 'Driver' &&
+                                    val!.isEmpty) {
+                                  return "እባክዎ የመታወቂያ ቁጥር ያስገቡ";
+                                }
+                                return null;
+                              },
+                            ),
+                            // --- አዲሱ ኮድ እዚህ ያበቃል ---
+
                             const SizedBox(height: 20),
                             // --- National ID Scanner ---
-                            Text("የመታወቂያ ካርድ ፎቶ", style: TextStyle(color: Colors.grey.shade700)),
+                            Text("የመታወቂያ ካርድ ፎቶ",
+                                style: TextStyle(color: Colors.grey.shade700)),
                             const SizedBox(height: 8),
                             Container(
                               height: 150,
@@ -292,9 +328,10 @@ class _AuthPageState extends State<AuthPage> {
                               ),
                               child: _idCardImage != null
                                   ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(11),
-                                    child: Image.file(_idCardImage!, fit: BoxFit.cover),
-                                  )
+                                      borderRadius: BorderRadius.circular(11),
+                                      child: Image.file(_idCardImage!,
+                                          fit: BoxFit.cover),
+                                    )
                                   : const Center(child: Text("ምንም ፎቶ አልተመረጠም")),
                             ),
                             const SizedBox(height: 8),
@@ -302,12 +339,14 @@ class _AuthPageState extends State<AuthPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 ElevatedButton.icon(
-                                  onPressed: () => _pickImage(ImageSource.camera),
+                                  onPressed: () =>
+                                      _pickImage(ImageSource.camera),
                                   icon: const Icon(Icons.camera_alt),
                                   label: const Text("ካሜራ"),
                                 ),
                                 ElevatedButton.icon(
-                                  onPressed: () => _pickImage(ImageSource.gallery),
+                                  onPressed: () =>
+                                      _pickImage(ImageSource.gallery),
                                   icon: const Icon(Icons.photo_library),
                                   label: const Text("ጋለሪ"),
                                 ),
