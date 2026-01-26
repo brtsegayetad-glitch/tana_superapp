@@ -139,7 +139,7 @@ class _AuthPageState extends State<AuthPage> {
         // ሾፌር ከሆነ አስፈላጊዎቹን የፋይናንስ ፊልዶች እና የመታወቂያ ካርድ ዩአርኤል እዚህ እንጨምራለን
         if (finalRole == 'driver') {
           // Upload ID card and get URL
-          String idCardUrl = await _uploadIdCard(uid, _idCardImage!);
+          String idCardUrl = await _uploadIdCard(_idCardImage!);
           userData['idCardUrl'] = idCardUrl;
 
           // 1. በ drivers ኮሌክሽን ውስጥ
