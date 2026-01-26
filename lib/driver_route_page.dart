@@ -276,8 +276,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading)
+    if (isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     double totalToPay = calculateTotalDue();
 
     return Scaffold(
