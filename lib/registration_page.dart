@@ -154,12 +154,12 @@ class _AuthPageState extends State<AuthPage> {
             'total_debt': 0, // Number
             'ride_count': 0, // Number
             'is_blocked': false, // Boolean
-            'isRoutePaid': true, // ይህንን መጨመርህ በጣም ትክክል ነው!
+            'isRoutePaid': false, // ይህንን መጨመርህ በጣም ትክክል ነው!
             'idCardUrl': idCardUrl, // Store URL in drivers collection too
           });
 
           // 2. በ users ኮሌክሽን ውስጥ (ለ BajajDriverPage ቼክ እንዲያደርግ)
-          userData['isRoutePaid'] = true;
+          userData['isRoutePaid'] = false;
           userData['is_blocked'] = false;
           userData['ride_count'] = 0;
           userData['total_debt'] = 0;

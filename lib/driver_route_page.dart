@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter/services.dart'; // Required for Clipboard
+import 'package:flutter/services.dart';
 import 'dart:io';
+import 'dart:convert'; // ለ jsonDecode አስፈላጊ ነው
+import 'package:http/http.dart' as http; // ለ ImgBB አስፈላጊ ነው
 import 'app_drawer.dart';
 
 final Map<String, Map<String, String>> localizedText = {
@@ -110,7 +111,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           isRoutePaid = data['isRoutePaid'] ?? false;
           bajajName = data['fullName'] ?? "Unnamed Bajaj";
           plateNumber = data['plateNumber'] ?? "---";
-          nationalId = data['nationalId'] ?? "---";
+          nationalId = data['idNumber'] ??
+              "---"; // 'nationalId' ወደ 'idNumber' ተቀይሯል (registration page ላይ እንዳለው)
           associationId = data['associationId'] ?? 'tana_assoc';
           lastPaymentDate = data['lastPaymentDate'] as Timestamp?;
         });
@@ -173,19 +175,29 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     if (_amountController.text.isEmpty ||
         _transactionController.text.isEmpty ||
         _imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Please fill all info and pick image!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("እባክዎ ሁሉንም መረጃ ይሙሉ እና ፎቶ ይምረጡ!")));
       return;
     }
     setState(() => isLoading = true);
     try {
-      String fileName =
-          'receipts/${uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      UploadTask uploadTask =
-          FirebaseStorage.instance.ref().child(fileName).putFile(_imageFile!);
-      TaskSnapshot snapshot = await uploadTask;
-      String imageUrl = await snapshot.ref.getDownloadURL();
+      // 1. ፎቶውን ወደ ImgBB መላክ
+      String apiKey = "858ef05f1ba7c5262fbb85ea9894c83f";
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey'),
+      );
+      request.files
+          .add(await http.MultipartFile.fromPath('image', _imageFile!.path));
 
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+      var json = jsonDecode(responseData);
+
+      if (json['data'] == null) throw Exception("ImgBB Upload Failed");
+      String imageUrl = json['data']['url'];
+
+      // 2. መረጃውን Firestore ውስጥ ማስቀመጥ
       await FirebaseFirestore.instance.collection('deposit_requests').add({
         'uid': uid,
         'driverName': bajajName,
@@ -206,10 +218,12 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         isLoading = false;
       });
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Sent for approval!")));
+          .showSnackBar(const SnackBar(content: Text("ለማረጋገጫ ተልኳል!")));
     } catch (e) {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
       print("Error: $e");
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("ስህተት ተከስቷል: $e")));
     }
   }
 
@@ -221,20 +235,37 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       return;
     }
 
+    // assocMerchantId አሁን ስልክ ቁጥር መሆኑን እናረጋግጣለን (ለምሳሌ 0912345678)
     if (assocMerchantId == "000000" || assocMerchantId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("የማህበሩ የቴሌብር መለያ አልተገኘም")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("የማህበሩ ስልክ ቁጥር አልተገኘም")));
       return;
     }
 
-    final Uri url = Uri.parse(
-        "telebirr://payment?merchantId=$assocMerchantId&amount=$total");
+    // ወደ ስልክ ቁጥር ለመላክ (P2P) የሚጠቅም የቴሌብር ሊንክ
+    // ማሳሰቢያ፡ ቴሌብር በሊንክ ወደ ስልክ ቁጥር በቀጥታ ብሩን እንዲሞላ ካልፈቀደ፣ አፑን ብቻ እንዲከፍት እናደርገዋለን
+    final String telebirrUrl =
+        "telebirr://sendmoney?phoneNumber=$assocMerchantId&amount=$total";
+    final Uri url = Uri.parse(telebirrUrl);
 
     try {
-      await launchUrl(
-        url,
-        mode: LaunchMode.externalNonBrowserApplication,
-      );
+      bool launched =
+          await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+
+      if (!launched) {
+        // አፑ በቀጥታ ካልከፈተ፣ ቴሌብርን ብቻ እንዲከፍት እንሞክራለን
+        final Uri appUrl = Uri.parse("telebirr://");
+        await launchUrl(appUrl, mode: LaunchMode.externalApplication);
+
+        // ለሾፌሩ መረጃ ለመስጠት
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text(
+                    "ቴሌብርን ከፈትን። እባክዎ ወደ $assocMerchantId ብር $total ይላኩ።")),
+          );
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -245,9 +276,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
+    if (isLoading)
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
     double totalToPay = calculateTotalDue();
 
     return Scaffold(
