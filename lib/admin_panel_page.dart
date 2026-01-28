@@ -38,7 +38,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   @override
   void initState() {
     super.initState();
-    // መጀመሪያ በ 1 ታብ እንጀምርና ዳታው ሲመጣ እናስተካክላለን
     _tabController = TabController(length: 1, vsync: this);
     _loadUserData();
   }
@@ -60,7 +59,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         setState(() {
           _managerAssociation = doc.data()?['associationId'];
           _currentUserPhone = doc.data()?['phoneNumber'];
-          // ሱፐር አድሚን ከሆነ 6 ታብ፣ ማናጀር ከሆነ 1 ታብ
           _tabController =
               TabController(length: _isSuperAdmin ? 6 : 1, vsync: this);
           isLoading = false;
@@ -138,6 +136,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       'type': 'call_center'
     });
     _phoneController.clear();
+    if (!mounted) return; // Added mounted check
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text("Ride Dispatched!")));
   }
@@ -197,7 +196,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                 'bankInfo': bankC.text.trim(),
                 'name': nameC.text.trim(),
               });
-              Navigator.pop(context);
+              if (!mounted) return; // Added mounted check
+              Navigator.pop(c); // Use the dialog's context 'c'
             },
             child: const Text("SAVE"),
           )
@@ -245,7 +245,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   }
 
   Widget _buildDashboardTab() {
-    // የ intl ማስጠንቀቂያን የሚያጠፋው ቀን ማሳያ
     String formattedDate = DateFormat('MMM dd, yyyy').format(DateTime.now());
 
     return StreamBuilder<QuerySnapshot>(
@@ -333,7 +332,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     );
   }
 
-  // ይህ ነው የጎደለው _summaryRow ፈንክሽን
   Widget _summaryRow(String label, String value, {bool isRed = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,

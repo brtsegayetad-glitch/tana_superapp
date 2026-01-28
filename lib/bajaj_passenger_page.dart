@@ -10,7 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'location_data.dart';
-import 'app_drawer.dart'; // ይህን መስመር ጨምር
+import 'app_drawer.dart';
 
 class BajajPassengerPage extends StatefulWidget {
   const BajajPassengerPage({super.key});
@@ -24,7 +24,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   String _userName = "Passenger";
 
   // --- MAP STATE ---
-  double _currentZoom = 15.0;
+  final MapController _mapController = MapController(); // Added MapController
 
   // --- APP STATE ---
   String tripStatus = "idle";
@@ -136,6 +136,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       if (mounted) {
         setState(() =>
             myRealPosition = LatLng(position.latitude, position.longitude));
+        // Move map to new user location
+        _mapController.move(myRealPosition!, 15.0);
       }
     });
   }
@@ -177,7 +179,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         String status = data['status'] ?? 'searching';
         if (status == 'completed' && tripStatus != "finished") {
           setState(() => tripStatus = "finished");
-          _showRatingDialog(rideId);
+          if (mounted) { // Added mounted check
+            _showRatingDialog(rideId);
+          }
         } else if (mounted) {
           setState(() {
             tripStatus = status;
@@ -242,27 +246,20 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     final LatLng activeCenter = myRealPosition ?? bahirDarCenter;
 
     return Scaffold(
-      // --- 1. ድራወሩ እዚህ ተጨምሯል ---
       drawer: AppDrawer(userPhone: _phoneController.text),
-
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // ካርታው
           FlutterMap(
+            mapController: _mapController, // Added controller
             options: MapOptions(
-              initialCenter: activeCenter,
-              initialZoom: 15,
-              onPositionChanged: (position, hasGesture) {
-                setState(() {
-                  _currentZoom = position.zoom;
-                });
-              },
+              initialCenter: activeCenter, // Replaced camera with initialCenter
+              initialZoom: 15, // Replaced camera with initialZoom
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.tana.superapp',
               ),
               MarkerLayer(
                 markers: [
@@ -284,61 +281,22 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                           color: Colors.teal, size: 35),
                     ),
                   ...masterDirectory.map((loc) {
-                    String cat = loc.category.toLowerCase();
-                    bool isAnchor = cat.contains("square") ||
-                        cat.contains("hospital") ||
-                        cat.contains("church") ||
-                        cat.contains("mosque");
-
-                    if (!isAnchor && _currentZoom < 14.5) {
-                      return const Marker(
-                          point: LatLng(0, 0), child: SizedBox.shrink());
-                    }
-
                     return Marker(
                       point: loc.coordinates,
                       width: 120,
                       height: 80,
                       child: Column(
                         children: [
-                          Icon(
-                            getMarkerIcon(loc.category),
-                            color: getMarkerColor(loc.category),
-                            size: isAnchor ? 30 : 20,
+                          Icon(getMarkerIcon(loc.category),
+                              color: getMarkerColor(loc.category), size: 25),
+                          Text(
+                            loc.nameAmh,
+                            style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                backgroundColor: Colors.white.withOpacity(0.7)), // Fixed deprecated color
+                            textAlign: TextAlign.center,
                           ),
-                          if (isAnchor || _currentZoom > 15.5)
-                            Container(
-                              margin: const EdgeInsets.only(top: 2),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(4),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    blurRadius: 4,
-                                    offset: const Offset(1, 1),
-                                  ),
-                                ],
-                                border: Border.all(
-                                    color: getMarkerColor(loc.category)
-                                        .withOpacity(0.8),
-                                    width: 1),
-                              ),
-                              child: Text(
-                                loc.nameAmh,
-                                style: TextStyle(
-                                  fontSize: isAnchor ? 11 : 9,
-                                  fontWeight: isAnchor
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  color: Colors.black,
-                                ),
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
                         ],
                       ),
                     );
@@ -347,8 +305,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               ),
             ],
           ),
-
-          // --- 2. የሜኑ አዝራር (ድራወሩን ለመክፈት) ---
           Positioned(
             top: 50,
             left: 20,
@@ -368,8 +324,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               ),
             ),
           ),
-
-          // የታችኛው የመጠየቂያ ፎርም (Sheet)
           tripStatus == "idle" ? _buildRequestSheet() : _buildLiveRideSheet(),
         ],
       ),
@@ -540,12 +494,19 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           actions: [
             TextButton(
                 onPressed: () async {
+                  // No need to check mounted here, as this is not an async gap
+                  Navigator.pop(context);
+
+                  // Perform the async operation *after* the pop
                   await FirebaseFirestore.instance
                       .collection('ride_requests')
                       .doc(rideId)
                       .update({'rating': selectedStars});
-                  Navigator.pop(context);
-                  setState(() => tripStatus = "idle");
+                  
+                  // Now, if you need to update the state, check mounted again
+                  if(mounted){
+                    setState(() => tripStatus = "idle");
+                  }
                 },
                 child: const Text("SUBMIT"))
           ],
@@ -560,6 +521,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     rideSubscription?.cancel();
     _phoneController.dispose();
     _destinationController.dispose();
+    _mapController.dispose(); // Dispose the controller
     super.dispose();
   }
 
