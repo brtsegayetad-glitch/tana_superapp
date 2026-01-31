@@ -95,7 +95,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
             .doc(_currentDriverId)
             .set({
           'driver_id': _currentDriverId,
-          'driver_name': _driverName,
+          'driverName': _driverName,
           'plateNumber': _plateNumber,
           'phoneNumber': _currentUserPhone, // ✅ አሁን ትክክል ነው
           'photoUrl': _driverPhotoUrl,

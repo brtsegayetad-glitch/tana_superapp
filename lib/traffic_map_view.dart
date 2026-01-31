@@ -29,9 +29,10 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     super.dispose();
   }
 
-  // ✅ Function to make phone calls
+  // ✅ ስልክ ለመደወል የሚያስችል ፋንክሽን
   Future<void> _makePhoneCall(String? phoneNumber) async {
-    if (phoneNumber == null || phoneNumber.isEmpty) return;
+    if (phoneNumber == null || phoneNumber.isEmpty || phoneNumber == 'ስልክ የለም')
+      return;
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     try {
       if (await canLaunchUrl(launchUri)) {
@@ -42,13 +43,21 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     }
   }
 
-  // 🖱 Show Driver Dialog with Fixed Phone Logic
+  // 🖱 የሾፌሩን ዝርዝር መረጃ የሚያሳይ (የስልክ ቁጥር ችግር የተፈታበት)
   void _showDriverDetails(Map<String, dynamic> data) {
-    // 🔍 This part checks different possible field names in Firestore
-    final String? driverPhone = data['phone'] ??
-        data['phoneNumber'] ??
-        data['phone-number'] ??
-        data['driverPhone'];
+    // 🔍 ስልክ ቁጥሩን ከተለያዩ የፊልድ ስሞች መፈለግ
+    final String? rawPhone = data['phoneNumber'] ??
+        data['phone'] ??
+        data['driverPhone'] ??
+        data['tel'];
+    final String driverPhone =
+        (rawPhone != null && rawPhone.toString().isNotEmpty)
+            ? rawPhone.toString()
+            : 'ስልክ የለም';
+
+    final String driverName =
+        data['driverName'] ?? data['driver_name'] ?? 'ስም የለም';
+    final String plate = data['plateNumber'] ?? data['plate'] ?? 'ሰሌዳ የለም';
 
     showDialog(
       context: context,
@@ -67,7 +76,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(data['driverName'] ?? "ሾፌር",
+              child: Text(driverName,
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold)),
             ),
@@ -84,32 +93,38 @@ class _TrafficMapViewState extends State<TrafficMapView> {
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(color: Colors.black, width: 1),
               ),
-              child: Text("ሰሌዳ: ${data['plateNumber'] ?? 'N/A'}",
+              child: Text("ሰሌዳ: $plate",
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 13)),
             ),
             const SizedBox(height: 15),
 
-            // 📞 Phone Number Section
+            // 📞 የስልክ ቁጥር መደወያ ክፍል
             InkWell(
               onTap: () => _makePhoneCall(driverPhone),
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                    color: Colors.green[50],
+                    color: driverPhone != 'ስልክ የለም'
+                        ? Colors.green[50]
+                        : Colors.grey[100],
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.green.withOpacity(0.3))),
                 child: Row(
                   children: [
-                    const Icon(Icons.phone, color: Colors.green),
+                    Icon(Icons.phone,
+                        color: driverPhone != 'ስልክ የለም'
+                            ? Colors.green
+                            : Colors.grey),
                     const SizedBox(width: 10),
-                    Text(
-                        driverPhone ??
-                            'ስልክ የለም', // Changed "የለም" to "ስልክ የለም" for clarity
-                        style: const TextStyle(
-                            color: Colors.green, fontWeight: FontWeight.bold)),
+                    Text(driverPhone,
+                        style: TextStyle(
+                            color: driverPhone != 'ስልክ የለም'
+                                ? Colors.green
+                                : Colors.black54,
+                            fontWeight: FontWeight.bold)),
                     const Spacer(),
-                    if (driverPhone != null)
+                    if (driverPhone != 'ስልክ የለም')
                       const Icon(Icons.call, size: 16, color: Colors.green),
                   ],
                 ),
@@ -149,7 +164,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
                   urlTemplate:
                       'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
 
-              // 📍 Static Markers (Hospitals, Schools, etc.)
+              // 📍 ቋሚ ምልክቶች (ሆስፒታሎች፣ ትምህርት ቤቶች...)
               MarkerLayer(
                 markers: masterDirectory.map((loc) {
                   return Marker(
@@ -179,7 +194,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
                 }).toList(),
               ),
 
-              // 📡 Live Driver (Bajaj) Markers
+              // 📡 የቀጥታ ባጃጅ ምልክቶች
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('driver_locations')
@@ -245,7 +260,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
             ),
           ),
 
-          // 🚨 SOS Alert Listener
+          // 🚨 የ SOS ድንገተኛ አደጋ መከታተያ
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('sos_alerts')
@@ -278,6 +293,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           ListTile(
                             leading: const Icon(Icons.warning,
@@ -330,7 +346,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     );
   }
 
-  // --- Helper Methods ---
+  // --- ረዳት ክፍሎች (UI Helpers) ---
 
   Widget _buildMapStatsOverlay() {
     return StreamBuilder<QuerySnapshot>(
