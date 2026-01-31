@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "tana-superapp-bd"
+  },
+  "targets": {
+    "tana-superapp-bd": {
+      "hosting": {
+        "admin_web": [
+          "tana-admin-bd"
+        ],
+        "main_app": [
+          "tana-superapp-bd"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

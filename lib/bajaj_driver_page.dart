@@ -8,7 +8,6 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 
 import 'driver_route_page.dart';
-import 'app_drawer.dart';
 
 class BajajDriverPage extends StatefulWidget {
   const BajajDriverPage({super.key});
@@ -18,44 +17,54 @@ class BajajDriverPage extends StatefulWidget {
 }
 
 class _BajajDriverPageState extends State<BajajDriverPage> {
+  // 1. መቆጣጠሪያዎች (Controllers)
   int _selectedIndex = 0;
   final TextEditingController _otpInputController = TextEditingController();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  bool _isOnline = true;
+
+  // 2. ሁኔታዎች (States)
+  bool _isOnline = false;
   StreamSubscription<Position>? _driverPositionStream;
   final List<String> _ignoredRideIds = [];
 
+  // 3. የሾፌሩ መረጃዎች
   String? activeTripId;
   String _currentDriverId = "";
   String _driverName = "Loading...";
   String _plateNumber = "";
+  String? _driverPhotoUrl;
   String? _currentUserPhone;
 
   @override
   void initState() {
     super.initState();
-    _fetchDriverProfile();
+    _loadDriverData();
+    _initDriverLogic();
   }
 
-  Future<void> _fetchDriverProfile() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      _currentDriverId = user.uid;
-      var doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_currentDriverId)
-          .get();
-      if (doc.exists) {
-        if (mounted) {
+  // 4. መረጃውን ከ Firebase የመጫኛ ፋንክሽን
+  Future<void> _loadDriverData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        _currentDriverId = user.uid;
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (doc.exists && mounted) {
           setState(() {
             _driverName = doc.data()?['fullName'] ?? "Driver";
             _plateNumber = doc.data()?['plateNumber'] ?? "No Plate";
+            _driverPhotoUrl = doc.data()?['photoUrl'];
             _currentUserPhone = doc.data()?['phoneNumber'];
           });
         }
       }
+    } catch (e) {
+      debugPrint("ዳታ በመጫን ላይ ስህተት ተፈጥሯል: $e");
     }
-    _initDriverLogic();
   }
 
   Future<void> _initDriverLogic() async {
@@ -81,7 +90,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       ),
     ).listen((Position position) {
       if (_isOnline) {
-        // 1. ለከተማ አስተዳደሩ ደህንነት ዳሽቦርድ (General Tracking)
         FirebaseFirestore.instance
             .collection('driver_locations')
             .doc(_currentDriverId)
@@ -89,13 +97,14 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           'driver_id': _currentDriverId,
           'driver_name': _driverName,
           'plateNumber': _plateNumber,
+          'photoUrl': _driverPhotoUrl,
           'lat': position.latitude,
           'lng': position.longitude,
-          'last_updated': FieldValue.serverTimestamp(),
+          'is_online': _isOnline,
           'status': activeTripId != null ? 'busy' : 'available',
+          'last_updated': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        // 2. ንቁ ጉዞ ካለ ለተሳፋሪው ክትትል
         if (activeTripId != null) {
           FirebaseFirestore.instance
               .collection('ride_requests')
@@ -109,29 +118,42 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     });
   }
 
-  // --- NEW: SOS Logic for City Admin Security ---
+  // --- 🚨 SOS Logic (ከተማ አድሚን ጋር የተገናኘ) ---
   Future<void> _triggerSOS() async {
     try {
       Position pos = await Geolocator.getCurrentPosition();
-      await FirebaseFirestore.instance.collection('emergency_alerts').add({
-        'driver_id': _currentDriverId,
-        'driver_name': _driverName,
-        'plate': _plateNumber,
-        'location': GeoPoint(pos.latitude, pos.longitude),
+      await FirebaseFirestore.instance.collection('sos_alerts').add({
+        'driverName': _driverName,
+        'phone': _currentUserPhone,
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'is_resolved': false,
         'timestamp': FieldValue.serverTimestamp(),
-        'status': 'urgent',
       });
-
       Vibration.vibrate(duration: 1000);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("SOS: የአደጋ ጊዜ መልዕክት ለፀጥታ አካላት ተልኳል!"),
+          content: Text("🚨 SOS: የአደጋ ጊዜ መልዕክት ተልኳል!"),
           backgroundColor: Colors.red,
         ));
       }
     } catch (e) {
       debugPrint("SOS Error: $e");
+    }
+  }
+
+  Future<void> _logoutDriver() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('driver_locations')
+          .doc(_currentDriverId)
+          .update({'is_online': false});
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      }
+    } catch (e) {
+      debugPrint("Logout Error: $e");
     }
   }
 
@@ -180,9 +202,15 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   void _triggerAlert() async {
     try {
+      // 🔔 ለ 6.0 ቨርዥን የተስተካከለ
       await _audioPlayer
           .play(UrlSource('https://www.soundjay.com/buttons/beep-01a.mp3'));
-      Vibration.vibrate(duration: 800);
+
+      // 📳 ስልኩ እንዲርገበገብ
+      bool? hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator == true) {
+        Vibration.vibrate(duration: 800);
+      }
     } catch (e) {
       debugPrint("Alert error: $e");
     }
@@ -223,10 +251,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       await FirebaseFirestore.instance
           .collection('ride_requests')
           .doc(activeTripId!)
-          .update({
-        'status': 'searching',
-        'driver_id': null,
-      });
+          .update({'status': 'searching', 'driver_id': null});
       setState(() {
         activeTripId = null;
         _otpInputController.clear();
@@ -251,7 +276,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   Future<void> _finishTrip(int price) async {
     if (activeTripId == null) return;
     double commission = price * 0.10;
-
     await FirebaseFirestore.instance.collection('ride_history').add({
       'driver_id': _currentDriverId,
       'driver_name': _driverName,
@@ -261,7 +285,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       'timestamp': FieldValue.serverTimestamp(),
       'service_type': '8000_call',
     });
-
     await FirebaseFirestore.instance
         .collection('users')
         .doc(_currentDriverId)
@@ -269,7 +292,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       'total_debt': FieldValue.increment(commission),
       'ride_count': FieldValue.increment(1),
     });
-
     var doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(_currentDriverId)
@@ -281,7 +303,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           .doc(_currentDriverId)
           .update({'is_blocked': true});
     }
-
     await FirebaseFirestore.instance
         .collection('ride_requests')
         .doc(activeTripId!)
@@ -319,12 +340,31 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
         actions: [
           if (_selectedIndex == 0)
             Switch(
-                value: _isOnline,
-                onChanged: (v) => setState(() => _isOnline = v),
-                activeTrackColor: Colors.greenAccent)
+              value: _isOnline,
+              onChanged: (v) async {
+                setState(() => _isOnline = v);
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('driver_locations')
+                      .doc(_currentDriverId)
+                      .update({
+                    'is_online': v,
+                    'last_updated': FieldValue.serverTimestamp(),
+                  });
+                } catch (e) {
+                  await FirebaseFirestore.instance
+                      .collection('driver_locations')
+                      .doc(_currentDriverId)
+                      .set({
+                    'is_online': v,
+                    'last_updated': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+                }
+              },
+              activeTrackColor: Colors.greenAccent,
+            )
         ],
       ),
-      drawer: AppDrawer(userPhone: _currentUserPhone),
       body: SafeArea(child: currentScreen),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
@@ -343,35 +383,28 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   Widget _buildHomeScreen() {
     if (!_isOnline) return const Center(child: Text("You are Offline"));
-
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('users')
           .doc(_currentDriverId)
           .snapshots(),
       builder: (context, userSnapshot) {
-        if (!userSnapshot.hasData) {
+        if (!userSnapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        }
-
         var userData = userSnapshot.data!.data() as Map<String, dynamic>? ?? {};
         bool isPaid = userData['isRoutePaid'] ?? false;
         bool isBlocked = userData['is_blocked'] ?? false;
         int rideCount = userData['ride_count'] ?? 0;
 
-        if (!isPaid) {
+        if (!isPaid)
           return _warningUI(Icons.warning_amber_rounded, "PERMIT EXPIRED",
               "Please pay your weekly fee.", 2);
-        }
-
-        if (isBlocked || rideCount >= 10) {
+        if (isBlocked || rideCount >= 10)
           return _warningUI(Icons.block, "LIMIT REACHED",
               "You have completed 10 rides. Please pay commission.", 1);
-        }
 
         return Column(
           children: [
-            // SOS Button added at the top of Home
             Padding(
               padding: const EdgeInsets.all(10.0),
               child: ElevatedButton.icon(
@@ -387,10 +420,9 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
               ),
             ),
             Expanded(
-              child: activeTripId != null
-                  ? _buildActiveTripContainer()
-                  : _buildWaitingOrRequestList(),
-            ),
+                child: activeTripId != null
+                    ? _buildActiveTripContainer()
+                    : _buildWaitingOrRequestList()),
           ],
         );
       },
@@ -404,16 +436,14 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           .doc(activeTripId!)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
+        if (!snapshot.hasData || !snapshot.data!.exists)
           return const Center(child: Text("Trip Ended"));
-        }
         var data = snapshot.data!.data() as Map<String, dynamic>;
         String status = data['status'] ?? 'searching';
         int price = data['price'] ?? 0;
         if (status == 'accepted') return _buildOtpScreen(data);
-        if (status == 'started') {
+        if (status == 'started')
           return _buildInTripScreen(price, data['passenger_phone'] ?? "");
-        }
         return const Center(child: CircularProgressIndicator());
       },
     );
@@ -425,9 +455,8 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           .collection('ride_requests')
           .where('status', whereIn: ['searching', 'pending']).snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
           return const Center(child: Text("Waiting for requests..."));
-        }
         var docs = snapshot.data!.docs
             .where((d) => !_ignoredRideIds.contains(d.id))
             .toList();
@@ -560,7 +589,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           debt = (userData['total_debt'] ?? 0.0).toDouble();
           count = userData['ride_count'] ?? 0;
         }
-
         return SingleChildScrollView(
           child: Column(
             children: [
@@ -604,9 +632,8 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                     .orderBy('timestamp', descending: true)
                     .snapshots(),
                 builder: (context, historySnapshot) {
-                  if (!historySnapshot.hasData) {
+                  if (!historySnapshot.hasData)
                     return const Center(child: CircularProgressIndicator());
-                  }
                   return ListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),

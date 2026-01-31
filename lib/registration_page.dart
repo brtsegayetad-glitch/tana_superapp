@@ -6,8 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-// ማስታወሻ፡ Navigator አያስፈልገንም፣ ምክንያቱም main.dart በራሱ ስትሪሙን አይቶ ገጽ ይቀይራል
-
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
 
@@ -17,18 +15,23 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> {
   final _formKey = GlobalKey<FormState>();
+  
+  // Controllers
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _idNumberController = TextEditingController();
   final TextEditingController _plateController = TextEditingController();
 
+  // State Variables
   bool _isLogin = true;
   bool _isLoading = false;
   String _selectedRole = 'Passenger';
   String _selectedAssociation = 'Tana';
 
-  File? _idCardImage;
+  // Images
+  File? _idCardImage; // ለመታወቂያ ካርድ
+  File? _profileImage; // 🔥 ለሾፌሩ ፊት (Selfie)
   final ImagePicker _picker = ImagePicker();
 
   final String _superAdminPhone = "0971732729";
@@ -41,29 +44,28 @@ class _AuthPageState extends State<AuthPage> {
     'Blue Nile': 'nile_assoc'
   };
 
-  Future<void> _pickImage(ImageSource source) async {
+  // 1. ፎቶ መምረጫ (ለፕሮፋይል ወይስ ለመታወቂያ?)
+  Future<void> _pickImage(ImageSource source, bool isProfile) async {
     try {
-      final pickedFile = await _picker.pickImage(
-        source: source,
-        imageQuality: 50, // Compress image to save space
-      );
+      // 4GB RAM ስለሆነ Quality 50 ይበቃል
+      final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
       if (pickedFile != null) {
         setState(() {
-          _idCardImage = File(pickedFile.path);
+          if (isProfile) {
+            _profileImage = File(pickedFile.path);
+          } else {
+            _idCardImage = File(pickedFile.path);
+          }
         });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("የፎቶ ምርጫ አልተሳካም: $e")),
-        );
-      }
+      debugPrint("የፎቶ ምርጫ ስህተት: $e");
     }
   }
 
- Future<String> _uploadIdCard(File imageFile) async {
+  // 2. ፎቶ ወደ ImgBB መጫኛ (ሁለገብ)
+  Future<String> _uploadImage(File imageFile) async {
     try {
-      // ከ api.imgbb.com ያገኘኸውን ቁጥር እዚህ ጋር በደንብ ተክተህ አስገባ
       String apiKey = "858ef05f1ba7c5262fbb85ea9894c83f"; 
       
       var request = http.MultipartRequest(
@@ -82,22 +84,25 @@ class _AuthPageState extends State<AuthPage> {
         throw Exception("ፎቶውን ወደ ImgBB መጫን አልተሳካም");
       }
     } catch (e) {
-      throw Exception("የመታወቂያ ካርድ መስቀል አልተሳካም: $e");
+      throw Exception("ImgBB Error: $e");
     }
   }
 
+  // 3. ዋናው የምዝገባ/ሎጊን ስራ
   Future<void> _handleAuth() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // For driver registration, ID card is mandatory
-    if (!_isLogin && _selectedRole == 'Driver' && _idCardImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("እባክዎ የመታወቂያ ካርድዎን ፎቶ ያስገቡ"),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
+    // ሾፌር ከሆነ እና እየተመዘገበ ከሆነ ሁለቱም ፎቶዎች ግዴታ ናቸው
+    if (!_isLogin && _selectedRole == 'Driver') {
+      if (_idCardImage == null || _profileImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("እባክዎ ሁለቱንም ፎቶዎች (ሴልፊ እና መታወቂያ) ያስገቡ"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isLoading = true);
@@ -136,61 +141,63 @@ class _AuthPageState extends State<AuthPage> {
           'isApproved': isMe ? true : (finalRole == 'manager' ? false : true),
         };
 
-        // ሾፌር ከሆነ አስፈላጊዎቹን የፋይናንስ ፊልዶች እና የመታወቂያ ካርድ ዩአርኤል እዚህ እንጨምራለን
+        // --- ለሾፌር ልዩ መረጃዎች ---
         if (finalRole == 'driver') {
-          // Upload ID card and get URL
-          String idCardUrl = await _uploadIdCard(_idCardImage!);
+          // 1. ሁለቱንም ፎቶዎች ወደ ImgBB መጫን
+          String profileUrl = await _uploadImage(_profileImage!); // ሴልፊ
+          String idCardUrl = await _uploadImage(_idCardImage!);   // መታወቂያ
+
+          // 2. ለ users ኮሌክሽን (አድሚን ማፑ ፎቶውን ከዚህ ያገኘዋል)
+          userData['photoUrl'] = profileUrl; 
           userData['idCardUrl'] = idCardUrl;
-
-          // 1. በ drivers ኮሌክሽን ውስጥ
-          await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
-            'name': _nameController.text.trim(),
-            'plate': _plateController.text.trim(),
-            'idNumber': _idNumberController.text.trim(), // ይህንን አዲስ ጨምር
-            'associationId': assocId,
-            'isOnline': false,
-            'uid': uid,
-            'phoneNumber': phone,
-            'total_debt': 0, // Number
-            'ride_count': 0, // Number
-            'is_blocked': false, // Boolean
-            'isRoutePaid': false, // ይህንን መጨመርህ በጣም ትክክል ነው!
-            'idCardUrl': idCardUrl, // Store URL in drivers collection too
-          });
-
-          // 2. በ users ኮሌክሽን ውስጥ (ለ BajajDriverPage ቼክ እንዲያደርግ)
+          userData['plateNumber'] = _plateController.text.trim();
           userData['isRoutePaid'] = false;
           userData['is_blocked'] = false;
           userData['ride_count'] = 0;
           userData['total_debt'] = 0;
+
+          // 3. በ drivers ኮሌክሽን ውስጥ
+          await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
+            'name': _nameController.text.trim(),
+            'plate': _plateController.text.trim(),
+            'idNumber': _idNumberController.text.trim(),
+            'associationId': assocId,
+            'isOnline': false,
+            'uid': uid,
+            'phoneNumber': phone,
+            'photoUrl': profileUrl, // 🔥 ለ Live Map
+            'idCardUrl': idCardUrl,
+            'total_debt': 0,
+            'ride_count': 0,
+            'is_blocked': false,
+            'isRoutePaid': false,
+          });
         }
 
+        // Users ኮሌክሽን ላይ መጻፍ
         await FirebaseFirestore.instance
             .collection('users')
             .doc(uid)
             .set(userData);
       }
 
-      // --- የስህተት መቆጣጠሪያ (The updated Error Handler) ---
     } on FirebaseAuthException catch (e) {
       String errorMessage;
-
-      // ትክክለኛውን የFirebase ስህተት መለየት
       switch (e.code) {
         case 'user-not-found':
-          errorMessage = "ይህ ስልክ ቁጥር አልተመዘገበም (User not found)";
+          errorMessage = "ይህ ስልክ ቁጥር አልተመዘገበም";
           break;
         case 'wrong-password':
-          errorMessage = "የተሳሳተ የይለፍ ቃል (Wrong password)";
+          errorMessage = "የተሳሳተ የይለፍ ቃል";
           break;
         case 'email-already-in-use':
-          errorMessage = "ይህ ስልክ ቁጥር ቀድሞ ተመዝግቧል (Already exists)";
+          errorMessage = "ይህ ስልክ ቁጥር ቀድሞ ተመዝግቧል";
           break;
         case 'network-request-failed':
-          errorMessage = "የኢንተርኔት ግንኙነት የለም (No Internet)";
+          errorMessage = "የኢንተርኔት ግንኙነት የለም";
           break;
         default:
-          errorMessage = "ስህተት: ${e.message}"; // ሌሎች ስህተቶችን በዝርዝር ያሳያል
+          errorMessage = "ስህተት: ${e.message}";
       }
 
       if (mounted) {
@@ -247,6 +254,7 @@ class _AuthPageState extends State<AuthPage> {
                             fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 20),
+                      
                       // ስልክ ቁጥር
                       TextFormField(
                         controller: _phoneController,
@@ -257,6 +265,7 @@ class _AuthPageState extends State<AuthPage> {
                             val!.length < 10 ? "ትክክለኛ ስልክ ያስገቡ" : null,
                       ),
                       const SizedBox(height: 10),
+                      
                       // የይለፍ ቃል
                       TextFormField(
                         controller: _passwordController,
@@ -265,6 +274,8 @@ class _AuthPageState extends State<AuthPage> {
                         validator: (val) =>
                             val!.length < 6 ? "ቢያንስ 6 ፊደል" : null,
                       ),
+
+                      // የመመዝገቢያ ፊልዶች (Login ካልሆነ ብቻ)
                       if (!_isLogin) ...[
                         const SizedBox(height: 10),
                         // ስም
@@ -274,10 +285,11 @@ class _AuthPageState extends State<AuthPage> {
                           validator: (val) => val!.isEmpty ? "ስም ያስገቡ" : null,
                         ),
                         const SizedBox(height: 15),
+                        
                         // ሚና (Role)
                         DropdownButtonFormField<String>(
                           initialValue: _selectedRole,
-                          items: ['Passenger', 'Driver', 'Manager']
+                          items: ['Passenger', 'Driver']
                               .map((r) =>
                                   DropdownMenuItem(value: r, child: Text(r)))
                               .toList(),
@@ -286,67 +298,82 @@ class _AuthPageState extends State<AuthPage> {
                           decoration:
                               const InputDecoration(labelText: "የተጠቃሚ አይነት"),
                         ),
+
+                        // ሾፌር ከሆነ የሚመጡ ተጨማሪ ፊልዶች
                         if (_selectedRole != 'Passenger') ...[
                           const SizedBox(height: 10),
                           if (_selectedRole == 'Driver') ...[
+                            
+                            // 1. የታርጋ ቁጥር
                             TextFormField(
                               controller: _plateController,
-                              decoration:
-                                  const InputDecoration(labelText: "የታርጋ ቁጥር"),
+                              decoration: const InputDecoration(
+                                labelText: "የታርጋ ቁጥር (Plate Number)",
+                                prefixIcon: Icon(Icons.minor_crash),
+                              ),
+                              validator: (val) => (!_isLogin && val!.isEmpty) ? "እባክዎ የታርጋ ቁጥር ያስገቡ" : null,
                             ),
-
-                            // --- አዲሱ ኮድ ከዚህ በታች ይጀምራል ---
                             const SizedBox(height: 10),
+
+                            // 2. የብሔራዊ መታወቂያ ቁጥር
                             TextFormField(
                               controller: _idNumberController,
                               decoration: const InputDecoration(
                                 labelText: "የብሔራዊ መታወቂያ ቁጥር",
                                 prefixIcon: Icon(Icons.badge),
                               ),
-                              validator: (val) {
-                                if (!_isLogin &&
-                                    _selectedRole == 'Driver' &&
-                                    val!.isEmpty) {
-                                  return "እባክዎ የመታወቂያ ቁጥር ያስገቡ";
-                                }
-                                return null;
-                              },
+                              validator: (val) => (!_isLogin && val!.isEmpty) ? "እባክዎ የመታወቂያ ቁጥር ያስገቡ" : null,
                             ),
-                            // --- አዲሱ ኮድ እዚህ ያበቃል ---
-
                             const SizedBox(height: 20),
-                            // --- National ID Scanner ---
-                            Text("የመታወቂያ ካርድ ፎቶ",
-                                style: TextStyle(color: Colors.grey.shade700)),
+
+                            // 3. የሾፌሩ ፕሮፋይል ፎቶ (Selfie)
+                            const Text("የሾፌሩ ፕሮፋይል ፎቶ (ሴልፊ)", 
+                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                            const SizedBox(height: 10),
+                            Center(
+                              child: GestureDetector(
+                                onTap: () => _pickImage(ImageSource.camera, true), // true = Profile
+                                child: CircleAvatar(
+                                  radius: 45,
+                                  backgroundColor: Colors.teal[50],
+                                  backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
+                                  child: _profileImage == null 
+                                      ? const Icon(Icons.add_a_photo, size: 35, color: Colors.teal) 
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            const Text("ለማንሳት ክበቡን ይጫኑ", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            const SizedBox(height: 20),
+
+                            // 4. የመታወቂያ ካርድ ፎቶ (ID Card)
+                            const Text("የመታወቂያ ካርድ ፎቶ", style: TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
                             Container(
                               height: 150,
                               width: double.infinity,
                               decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey),
+                                border: Border.all(color: Colors.grey.shade400),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: _idCardImage != null
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(11),
-                                      child: Image.file(_idCardImage!,
-                                          fit: BoxFit.cover),
+                                      child: Image.file(_idCardImage!, fit: BoxFit.cover),
                                     )
-                                  : const Center(child: Text("ምንም ፎቶ አልተመረጠም")),
+                                  : const Center(child: Icon(Icons.contact_mail_outlined, size: 50, color: Colors.grey)),
                             ),
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 ElevatedButton.icon(
-                                  onPressed: () =>
-                                      _pickImage(ImageSource.camera),
+                                  onPressed: () => _pickImage(ImageSource.camera, false), // false = ID
                                   icon: const Icon(Icons.camera_alt),
                                   label: const Text("ካሜራ"),
                                 ),
                                 ElevatedButton.icon(
-                                  onPressed: () =>
-                                      _pickImage(ImageSource.gallery),
+                                  onPressed: () => _pickImage(ImageSource.gallery, false),
                                   icon: const Icon(Icons.photo_library),
                                   label: const Text("ጋለሪ"),
                                 ),
@@ -354,7 +381,8 @@ class _AuthPageState extends State<AuthPage> {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          // ማህበር
+                          
+                          // ማህበር መምረጫ
                           DropdownButtonFormField<String>(
                             initialValue: _selectedAssociation,
                             items: _associationIds.keys
@@ -369,6 +397,8 @@ class _AuthPageState extends State<AuthPage> {
                         ],
                       ],
                       const SizedBox(height: 30),
+                      
+                      // Submit Button
                       _isLoading
                           ? const CircularProgressIndicator()
                           : ElevatedButton(
@@ -382,17 +412,21 @@ class _AuthPageState extends State<AuthPage> {
                                   style: const TextStyle(
                                       color: Colors.white, fontSize: 18)),
                             ),
+                      
+                      // Toggle Login/Signup
                       TextButton(
                         onPressed: () {
                           setState(() {
                             _isLogin = !_isLogin;
-                            // Clear fields when switching forms
+                            // ፎርሙን ማጽዳት
                             _formKey.currentState?.reset();
                             _phoneController.clear();
                             _passwordController.clear();
                             _nameController.clear();
                             _plateController.clear();
+                            _idNumberController.clear();
                             _idCardImage = null;
+                            _profileImage = null;
                             _selectedRole = 'Passenger';
                           });
                         },

@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -54,6 +55,18 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     super.initState();
     _loadPassengerProfile();
     _initLocationLogic();
+
+    // የኢንተርኔት ሁኔታን መከታተያ
+    Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      if (results.contains(ConnectivityResult.none)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("ኢንተርኔት ተቋርጧል! አፑ በከፊል ኦፍላይን መስራት ይጀምራል።"),
+          backgroundColor: Colors.orange,
+        ));
+      }
+    });
   }
 
   Future<void> _loadPassengerProfile() async {
@@ -115,11 +128,20 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         });
       }
     } catch (e) {
+      // ኢንተርኔት ሲጠፋ ወይም OSRM ስራ ሲያቆም ይህ ይባላል
+      double distanceInMeters = Geolocator.distanceBetween(startPos.latitude,
+          startPos.longitude, destination.latitude, destination.longitude);
+
+      double km = distanceInMeters / 1000;
+
       setState(() {
-        _calculatedKm = 2.0;
-        _estimatedPrice = 50;
+        _calculatedKm = km;
+        _estimatedPrice = (50 + (km * 15)).round(); // መደበኛ ቤዝ ዋጋ 50 + በኪሜ 15 ብር
         _isCalculatingPrice = false;
       });
+
+      // ለተጠቃሚው ማሳሰቢያ መስጠት ትችላለህ
+      debugPrint("ኢንተርኔት ስለሌለ በግምት ተሰልቷል: $e");
     }
   }
 
@@ -179,7 +201,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         String status = data['status'] ?? 'searching';
         if (status == 'completed' && tripStatus != "finished") {
           setState(() => tripStatus = "finished");
-          if (mounted) { // Added mounted check
+          if (mounted) {
+            // Added mounted check
             _showRatingDialog(rideId);
           }
         } else if (mounted) {
@@ -294,7 +317,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                             style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                backgroundColor: Colors.white.withOpacity(0.7)), // Fixed deprecated color
+                                backgroundColor: Colors.white.withOpacity(
+                                    0.7)), // Fixed deprecated color
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -502,9 +526,9 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                       .collection('ride_requests')
                       .doc(rideId)
                       .update({'rating': selectedStars});
-                  
+
                   // Now, if you need to update the state, check mounted again
-                  if(mounted){
+                  if (mounted) {
                     setState(() => tripStatus = "idle");
                   }
                 },

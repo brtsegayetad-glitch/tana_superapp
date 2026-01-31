@@ -4,11 +4,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
-// Import all the pages we have created
-import 'registration_page.dart'; // This file contains the AuthPage class
+// ገጾቹን እዚህ ጋር እናስገባለን
+import 'registration_page.dart';
 import 'bajaj_passenger_page.dart';
 import 'bajaj_driver_page.dart';
-import 'admin_panel_page.dart';
+// ማሳሰቢያ፡ 'admin_panel_page.dart' እዚህ አያስፈልገንም ምክንያቱም አድሚን በዌብ ነው የሚገባው
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,25 +25,20 @@ class TanaSuperApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Hullugebeya SuperApp',
+      title: 'Tana SuperApp',
       theme: ThemeData(
-        primarySwatch: Colors.teal,
+        primaryColor: Colors.teal,
         useMaterial3: true,
-        // Define a consistent color scheme
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
       ),
-      // Define a route for login to handle logout navigation seamlessly
+      home: const AuthWrapper(),
       routes: {
-        // Corrected: Using AuthPage instead of RegistrationPage
         '/login': (context) => const AuthPage(),
       },
-      home: const AuthWrapper(),
     );
   }
 }
 
-// This widget is the main entry point after the app starts.
-// It checks if a user is logged in and directs them accordingly.
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
@@ -52,26 +47,21 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // Show a loading spinner while checking the authentication state
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
         }
 
-        // If a user is logged in, find their role and redirect them
         if (snapshot.hasData) {
           return RoleBasedRedirect(userId: snapshot.data!.uid);
         }
 
-        // If no user is logged in, show the registration/login page
-        // Corrected: Using AuthPage instead of RegistrationPage
         return const AuthPage();
       },
     );
   }
 }
 
-// This widget takes a user's ID, fetches their data from Firestore,
-// and redirects them to the correct home screen based on their role.
 class RoleBasedRedirect extends StatelessWidget {
   final String userId;
   const RoleBasedRedirect({super.key, required this.userId});
@@ -81,34 +71,77 @@ class RoleBasedRedirect extends StatelessWidget {
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
       builder: (context, userSnapshot) {
-        // Show a loading spinner while fetching the user's document
         if (userSnapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
         }
 
-        // If the user's document doesn't exist (e.g., they didn't finish registration),
-        // send them back to the registration page.
         if (userSnapshot.hasError || !userSnapshot.data!.exists) {
-          // Corrected: Using AuthPage instead of RegistrationPage
           return const AuthPage();
         }
 
-        // If the document exists, get the role
         final userData = userSnapshot.data!.data() as Map<String, dynamic>;
         final role = (userData['role'] ?? 'passenger').toString().toLowerCase();
 
-        // Redirect to the appropriate screen based on the role
         switch (role) {
           case 'driver':
-            // Drivers go to their full-featured dashboard
             return const BajajDriverPage();
+
           case 'manager':
           case 'superadmin':
-            // Admins and managers go to the admin panel
-            return const AdminPanelPage();
+            // ማናጀሮች እና አድሚኖች በስልክ አፑ (App) እንዳይገቡ የሚከለክል ገጽ
+            return Scaffold(
+              backgroundColor: Colors.grey[100],
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(30.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.admin_panel_settings,
+                          size: 100, color: Colors.teal),
+                      const SizedBox(height: 20),
+                      const Text(
+                        "ይህ የሞባይል አፕ ለሾፌሮች እና ለተሳፋሪዎች ብቻ ነው።",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 15),
+                      const Text(
+                        "እባክዎ የአስተዳደር ስራዎችን ለመስራት (በባህር ዳር ጸጥታና ቁጥጥር) በስልክዎ ወይም በኮምፒውተርዎ ብሮውዘር (Chrome) ዳሽቦርዱን ይጠቀሙ።",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 30),
+                      // የዌብሳይቱ ሊንክ ለአድሚኖች እንዲታይ
+                      const SelectableText(
+                        "https://tana-superapp-bd.web.app",
+                        style: TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18),
+                      ),
+                      const SizedBox(height: 40),
+                      ElevatedButton.icon(
+                        onPressed: () => FirebaseAuth.instance.signOut(),
+                        icon: const Icon(Icons.logout),
+                        label: const Text("ውጣ (Logout)"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 40, vertical: 15),
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+            );
+
           case 'passenger':
           default:
-            // Passengers and any other roles default to the passenger map view
             return const BajajPassengerPage();
         }
       },

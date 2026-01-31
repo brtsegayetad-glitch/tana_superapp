@@ -136,7 +136,7 @@ final List<BahirDarLocation> masterDirectory = [
       name: "Kulkual Meda Primary",
       nameAmh: "ኩልኳል ሜዳ መጀ ደረጃ ት/ቤት",
       coordinates:
-          const LatLng(11.590708, 37.3616686), // Updated from your photo!
+          const LatLng(11.590699, 37.366914), // Updated from your photo!
       category: "School"),
 
 // --- HOTELS & PENSIONS ---
