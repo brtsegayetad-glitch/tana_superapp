@@ -6,7 +6,7 @@ import 'package:vibration/vibration.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
-
+import 'app_drawer.dart';
 import 'driver_route_page.dart';
 
 class BajajDriverPage extends StatefulWidget {
@@ -97,6 +97,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
           'driver_id': _currentDriverId,
           'driver_name': _driverName,
           'plateNumber': _plateNumber,
+          'phoneNumber': _currentUserPhone, // ✅ አሁን ትክክል ነው
           'photoUrl': _driverPhotoUrl,
           'lat': position.latitude,
           'lng': position.longitude,
@@ -139,21 +140,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
       }
     } catch (e) {
       debugPrint("SOS Error: $e");
-    }
-  }
-
-  Future<void> _logoutDriver() async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('driver_locations')
-          .doc(_currentDriverId)
-          .update({'is_online': false});
-      await FirebaseAuth.instance.signOut();
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-      }
-    } catch (e) {
-      debugPrint("Logout Error: $e");
     }
   }
 
@@ -328,13 +314,25 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
+      // ✅ ሜኑው (Drawer) እዚህ ጋር መገኘት አለበት
+      drawer: AppDrawer(userPhone: _currentUserPhone),
       appBar: AppBar(
+        // ✅ ይህ ቁልፍ ነው ሜኑውን የሚከፍተው
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         title: FittedBox(
-            child: Text(_selectedIndex == 0
+          child: Text(
+            _selectedIndex == 0
                 ? "Driver: $_driverName"
                 : _selectedIndex == 1
                     ? "Wallet"
-                    : "Permit")),
+                    : "Permit",
+          ),
+        ),
         backgroundColor: Colors.teal[800],
         foregroundColor: Colors.white,
         actions: [
@@ -362,7 +360,7 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
                 }
               },
               activeTrackColor: Colors.greenAccent,
-            )
+            ),
         ],
       ),
       body: SafeArea(child: currentScreen),

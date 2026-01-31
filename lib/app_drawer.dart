@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -17,7 +18,7 @@ class AppDrawer extends StatelessWidget {
     return Drawer(
       child: Column(
         children: [
-          // የሜኑው የላይኛው ክፍል (Header)
+          // 1. የሜኑው የላይኛው ክፍል (Header)
           UserAccountsDrawerHeader(
             decoration: BoxDecoration(color: Colors.teal[800]),
             accountName: const Text("Hullugebeya SuperApp"),
@@ -28,11 +29,23 @@ class AppDrawer extends StatelessWidget {
             ),
           ),
 
-          // የሜኑ ዝርዝሮች
+          // 2. የሜኑ ዝርዝሮች
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
+                // 🛒 ወደ ገበያው መሸጋገሪያ (ለወደፊቱ የምንጨምረው)
+                ListTile(
+                  leading: const Icon(Icons.storefront, color: Colors.orange),
+                  title: const Text("Hullugebeya Market (Vendor)"),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("የሻጭ ገጽ በቅርቡ ይከፈታል...")),
+                    );
+                  },
+                ),
+                const Divider(),
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: Colors.teal),
                   title: const Text("About Us (ስለ እኛ)"),
@@ -50,19 +63,42 @@ class AppDrawer extends StatelessWidget {
                   title: const Text("Privacy Policy (የግል መረጃ ጥበቃ)"),
                   onTap: () => _showPrivacyDialog(context),
                 ),
+
                 const Divider(),
+
+                // 🚪 የ Logout ክፍል (የተስተካከለ)
                 ListTile(
                   leading: const Icon(Icons.logout, color: Colors.red),
-                  title: const Text("Logout"),
+                  title:
+                      const Text("Logout", style: TextStyle(color: Colors.red)),
                   onTap: () async {
+                    // መጀመሪያ ሾፌሩን Offline እናድርገው
+                    String? uid = FirebaseAuth.instance.currentUser?.uid;
+                    if (uid != null) {
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('driver_locations')
+                            .doc(uid)
+                            .update({'is_online': false});
+                      } catch (e) {
+                        debugPrint("Offline status update failed: $e");
+                      }
+                    }
+
+                    // ከዚያ Sign out እናድርግ
                     await FirebaseAuth.instance.signOut();
+
                     if (!context.mounted) return;
-                    Navigator.of(context).pushReplacementNamed('/login');
+
+                    // ሁሉንም ገጾች ዘግተን ወደ Login ገጽ እንመለስ
+                    Navigator.of(context)
+                        .pushNamedAndRemoveUntil('/', (route) => false);
                   },
                 ),
               ],
             ),
           ),
+
           const Padding(
             padding: EdgeInsets.all(8.0),
             child: Text("Version 1.0.0 - Bahir Dar",
@@ -73,7 +109,7 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
-  // --- 1. ስለ እኛ (About Us) መረጃ ---
+  // --- 🏮 የ Dialog ኮዶች (About, Contact, Privacy) ---
   void _showAboutDialog(BuildContext context) {
     showAboutDialog(
       context: context,
@@ -83,15 +119,11 @@ class AppDrawer extends StatelessWidget {
           const Icon(Icons.local_taxi, color: Colors.teal, size: 50),
       children: [
         const Text(
-          "ሁሉገበያ በባህር ዳር ከተማ የሚሰሩ የባጃጅ ትራንስፖርት እና የገበያ አገልግሎቶችን በአንድ ላይ የያዘ መተግበሪያ ነው። "
-          "አላማችን የከተማዋን ነዋሪዎች ዘመናዊና ቀልጣፋ የዲጂታል አገልግሎት ተጠቃሚ ማድረግ ነው።",
-          style: TextStyle(fontSize: 14),
-        ),
+            "ሁሉገበያ በባህር ዳር ከተማ የሚሰሩ የባጃጅ ትራንስፖርት እና የገበያ አገልግሎቶችን በአንድ ላይ የያዘ መተግበሪያ ነው።"),
       ],
     );
   }
 
-  // --- 2. እኛን ለማግኘት (Contact Us) መረጃ ---
   void _showContactDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -100,16 +132,10 @@ class AppDrawer extends StatelessWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("ለማንኛውም ቅሬታ ወይም ጥያቄ እኛን ያግኙን፡"),
-            const SizedBox(height: 15),
             ListTile(
               leading: const Icon(Icons.phone, color: Colors.green),
               title: const Text("8000 (Call Center)"),
               onTap: () => _launchPhone("8000"),
-            ),
-            const ListTile(
-              leading: Icon(Icons.location_on, color: Colors.red),
-              title: Text("ባህር ዳር - ጣና ህንፃ"),
             ),
           ],
         ),
@@ -121,20 +147,13 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
-  // --- 3. የግል መረጃ ጥበቃ (Privacy Policy) ---
   void _showPrivacyDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Privacy Policy"),
-        content: const SingleChildScrollView(
-          child: Text(
-            "1. መተግበሪያው የእርስዎን ስልክ ቁጥር እና ስም ለምዝገባ አገልግሎት ብቻ ይጠቀማል።\n\n"
-            "2. የባጃጅ አገልግሎት ሲጠቀሙ የቆሙበትን ቦታ (GPS) ለሹፌሩ እና ለደህንነት ሲባል ለሲስተሙ እናሳውቃለን።\n\n"
-            "3. የእርስዎን መረጃ ለሶስተኛ ወገን አናሳልፍም ወይም አንሸጥም።\n\n"
-            "4. አፑን ሲጠቀሙ መረጃዎ በFirebase Cloud ላይ በከፍተኛ ጥበቃ ይቀመጣል።",
-          ),
-        ),
+        content: const Text(
+            "መተግበሪያው የእርስዎን ስልክ ቁጥር እና ቦታ ለደህንነት እና ለአገልግሎት ጥራት ሲባል ብቻ ይጠቀማል።"),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),

@@ -15,7 +15,7 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // Controllers
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -48,7 +48,8 @@ class _AuthPageState extends State<AuthPage> {
   Future<void> _pickImage(ImageSource source, bool isProfile) async {
     try {
       // 4GB RAM ስለሆነ Quality 50 ይበቃል
-      final pickedFile = await _picker.pickImage(source: source, imageQuality: 50);
+      final pickedFile =
+          await _picker.pickImage(source: source, imageQuality: 50);
       if (pickedFile != null) {
         setState(() {
           if (isProfile) {
@@ -66,15 +67,16 @@ class _AuthPageState extends State<AuthPage> {
   // 2. ፎቶ ወደ ImgBB መጫኛ (ሁለገብ)
   Future<String> _uploadImage(File imageFile) async {
     try {
-      String apiKey = "858ef05f1ba7c5262fbb85ea9894c83f"; 
-      
+      String apiKey = "858ef05f1ba7c5262fbb85ea9894c83f";
+
       var request = http.MultipartRequest(
         'POST',
         Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey'),
       );
 
-      request.files.add(await http.MultipartFile.fromPath('image', imageFile.path));
-      
+      request.files
+          .add(await http.MultipartFile.fromPath('image', imageFile.path));
+
       var response = await request.send();
       if (response.statusCode == 200) {
         var responseData = await response.stream.bytesToString();
@@ -134,6 +136,7 @@ class _AuthPageState extends State<AuthPage> {
         Map<String, dynamic> userData = {
           'uid': uid,
           'fullName': _nameController.text.trim(),
+          'driverName': _nameController.text.trim(),
           'phoneNumber': phone,
           'role': isMe ? 'superadmin' : finalRole,
           'createdAt': FieldValue.serverTimestamp(),
@@ -145,10 +148,10 @@ class _AuthPageState extends State<AuthPage> {
         if (finalRole == 'driver') {
           // 1. ሁለቱንም ፎቶዎች ወደ ImgBB መጫን
           String profileUrl = await _uploadImage(_profileImage!); // ሴልፊ
-          String idCardUrl = await _uploadImage(_idCardImage!);   // መታወቂያ
+          String idCardUrl = await _uploadImage(_idCardImage!); // መታወቂያ
 
           // 2. ለ users ኮሌክሽን (አድሚን ማፑ ፎቶውን ከዚህ ያገኘዋል)
-          userData['photoUrl'] = profileUrl; 
+          userData['photoUrl'] = profileUrl;
           userData['idCardUrl'] = idCardUrl;
           userData['plateNumber'] = _plateController.text.trim();
           userData['isRoutePaid'] = false;
@@ -158,14 +161,14 @@ class _AuthPageState extends State<AuthPage> {
 
           // 3. በ drivers ኮሌክሽን ውስጥ
           await FirebaseFirestore.instance.collection('drivers').doc(uid).set({
-            'name': _nameController.text.trim(),
-            'plate': _plateController.text.trim(),
+            'driverName': _nameController.text.trim(),
+            'plateNumber': _plateController.text.trim(),
             'idNumber': _idNumberController.text.trim(),
             'associationId': assocId,
             'isOnline': false,
             'uid': uid,
             'phoneNumber': phone,
-            'photoUrl': profileUrl, // 🔥 ለ Live Map
+            'photoUrl': profileUrl, // 🔥 ለ Live 
             'idCardUrl': idCardUrl,
             'total_debt': 0,
             'ride_count': 0,
@@ -180,7 +183,6 @@ class _AuthPageState extends State<AuthPage> {
             .doc(uid)
             .set(userData);
       }
-
     } on FirebaseAuthException catch (e) {
       String errorMessage;
       switch (e.code) {
@@ -254,7 +256,7 @@ class _AuthPageState extends State<AuthPage> {
                             fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 20),
-                      
+
                       // ስልክ ቁጥር
                       TextFormField(
                         controller: _phoneController,
@@ -265,7 +267,7 @@ class _AuthPageState extends State<AuthPage> {
                             val!.length < 10 ? "ትክክለኛ ስልክ ያስገቡ" : null,
                       ),
                       const SizedBox(height: 10),
-                      
+
                       // የይለፍ ቃል
                       TextFormField(
                         controller: _passwordController,
@@ -285,7 +287,7 @@ class _AuthPageState extends State<AuthPage> {
                           validator: (val) => val!.isEmpty ? "ስም ያስገቡ" : null,
                         ),
                         const SizedBox(height: 15),
-                        
+
                         // ሚና (Role)
                         DropdownButtonFormField<String>(
                           initialValue: _selectedRole,
@@ -303,7 +305,6 @@ class _AuthPageState extends State<AuthPage> {
                         if (_selectedRole != 'Passenger') ...[
                           const SizedBox(height: 10),
                           if (_selectedRole == 'Driver') ...[
-                            
                             // 1. የታርጋ ቁጥር
                             TextFormField(
                               controller: _plateController,
@@ -311,7 +312,9 @@ class _AuthPageState extends State<AuthPage> {
                                 labelText: "የታርጋ ቁጥር (Plate Number)",
                                 prefixIcon: Icon(Icons.minor_crash),
                               ),
-                              validator: (val) => (!_isLogin && val!.isEmpty) ? "እባክዎ የታርጋ ቁጥር ያስገቡ" : null,
+                              validator: (val) => (!_isLogin && val!.isEmpty)
+                                  ? "እባክዎ የታርጋ ቁጥር ያስገቡ"
+                                  : null,
                             ),
                             const SizedBox(height: 10),
 
@@ -322,32 +325,43 @@ class _AuthPageState extends State<AuthPage> {
                                 labelText: "የብሔራዊ መታወቂያ ቁጥር",
                                 prefixIcon: Icon(Icons.badge),
                               ),
-                              validator: (val) => (!_isLogin && val!.isEmpty) ? "እባክዎ የመታወቂያ ቁጥር ያስገቡ" : null,
+                              validator: (val) => (!_isLogin && val!.isEmpty)
+                                  ? "እባክዎ የመታወቂያ ቁጥር ያስገቡ"
+                                  : null,
                             ),
                             const SizedBox(height: 20),
 
                             // 3. የሾፌሩ ፕሮፋይል ፎቶ (Selfie)
-                            const Text("የሾፌሩ ፕሮፋይል ፎቶ (ሴልፊ)", 
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                            const Text("የሾፌሩ ፕሮፋይል ፎቶ (ሴልፊ)",
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.teal)),
                             const SizedBox(height: 10),
                             Center(
                               child: GestureDetector(
-                                onTap: () => _pickImage(ImageSource.camera, true), // true = Profile
+                                onTap: () => _pickImage(
+                                    ImageSource.camera, true), // true = Profile
                                 child: CircleAvatar(
                                   radius: 45,
                                   backgroundColor: Colors.teal[50],
-                                  backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-                                  child: _profileImage == null 
-                                      ? const Icon(Icons.add_a_photo, size: 35, color: Colors.teal) 
+                                  backgroundImage: _profileImage != null
+                                      ? FileImage(_profileImage!)
+                                      : null,
+                                  child: _profileImage == null
+                                      ? const Icon(Icons.add_a_photo,
+                                          size: 35, color: Colors.teal)
                                       : null,
                                 ),
                               ),
                             ),
-                            const Text("ለማንሳት ክበቡን ይጫኑ", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            const Text("ለማንሳት ክበቡን ይጫኑ",
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.grey)),
                             const SizedBox(height: 20),
 
                             // 4. የመታወቂያ ካርድ ፎቶ (ID Card)
-                            const Text("የመታወቂያ ካርድ ፎቶ", style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text("የመታወቂያ ካርድ ፎቶ",
+                                style: TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
                             Container(
                               height: 150,
@@ -359,21 +373,26 @@ class _AuthPageState extends State<AuthPage> {
                               child: _idCardImage != null
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(11),
-                                      child: Image.file(_idCardImage!, fit: BoxFit.cover),
+                                      child: Image.file(_idCardImage!,
+                                          fit: BoxFit.cover),
                                     )
-                                  : const Center(child: Icon(Icons.contact_mail_outlined, size: 50, color: Colors.grey)),
+                                  : const Center(
+                                      child: Icon(Icons.contact_mail_outlined,
+                                          size: 50, color: Colors.grey)),
                             ),
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 ElevatedButton.icon(
-                                  onPressed: () => _pickImage(ImageSource.camera, false), // false = ID
+                                  onPressed: () => _pickImage(
+                                      ImageSource.camera, false), // false = ID
                                   icon: const Icon(Icons.camera_alt),
                                   label: const Text("ካሜራ"),
                                 ),
                                 ElevatedButton.icon(
-                                  onPressed: () => _pickImage(ImageSource.gallery, false),
+                                  onPressed: () =>
+                                      _pickImage(ImageSource.gallery, false),
                                   icon: const Icon(Icons.photo_library),
                                   label: const Text("ጋለሪ"),
                                 ),
@@ -381,7 +400,7 @@ class _AuthPageState extends State<AuthPage> {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          
+
                           // ማህበር መምረጫ
                           DropdownButtonFormField<String>(
                             initialValue: _selectedAssociation,
@@ -397,7 +416,7 @@ class _AuthPageState extends State<AuthPage> {
                         ],
                       ],
                       const SizedBox(height: 30),
-                      
+
                       // Submit Button
                       _isLoading
                           ? const CircularProgressIndicator()
@@ -412,7 +431,7 @@ class _AuthPageState extends State<AuthPage> {
                                   style: const TextStyle(
                                       color: Colors.white, fontSize: 18)),
                             ),
-                      
+
                       // Toggle Login/Signup
                       TextButton(
                         onPressed: () {
