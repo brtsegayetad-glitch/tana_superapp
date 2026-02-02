@@ -4,8 +4,12 @@ import 'package:latlong2/latlong.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
-import 'location_data.dart';
+import 'location_data.dart'; // Ensure this file exists
 import 'package:audioplayers/audioplayers.dart';
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class TrafficMapView extends StatefulWidget {
   const TrafficMapView({super.key});
@@ -17,6 +21,9 @@ class TrafficMapView extends StatefulWidget {
 class _TrafficMapViewState extends State<TrafficMapView> {
   final MapController _adminMapController = MapController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  
+  // ✅ UPDATE 1: Variable to track zoom level for text labels
+  double _currentZoom = 14.5; 
 
   final AudioPlayer _alertPlayer = AudioPlayer();
   bool _isSOSActive = false;
@@ -29,10 +36,13 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     super.dispose();
   }
 
-  // ✅ ስልክ ለመደወል የሚያስችል ፋንክሽን
+  // ✅ Phone Call Function
   Future<void> _makePhoneCall(String? phoneNumber) async {
-    if (phoneNumber == null || phoneNumber.isEmpty || phoneNumber == 'ስልክ የለም')
+    if (phoneNumber == null ||
+        phoneNumber.isEmpty ||
+        phoneNumber == 'ስልክ የለም') {
       return;
+    }
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     try {
       if (await canLaunchUrl(launchUri)) {
@@ -43,9 +53,8 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     }
   }
 
-  // 🖱 የሾፌሩን ዝርዝር መረጃ የሚያሳይ (የስልክ ቁጥር ችግር የተፈታበት)
+  // 🖱 Show Driver Details Dialog
   void _showDriverDetails(Map<String, dynamic> data) {
-    // 🔍 ስልክ ቁጥሩን ከተለያዩ የፊልድ ስሞች መፈለግ
     final String? rawPhone = data['phoneNumber'] ??
         data['phone'] ??
         data['driverPhone'] ??
@@ -99,7 +108,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
             ),
             const SizedBox(height: 15),
 
-            // 📞 የስልክ ቁጥር መደወያ ክፍል
+            // Phone Button
             InkWell(
               onTap: () => _makePhoneCall(driverPhone),
               child: Container(
@@ -148,6 +157,124 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     );
   }
 
+  // Show Report Date Picker
+  void _showReportDialog() async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2025),
+      lastDate: DateTime.now(),
+    );
+
+    if (pickedDate == null) return;
+
+    final startOfDay =
+        DateTime(pickedDate.year, pickedDate.month, pickedDate.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    if (!mounted) return;
+    showDialog(
+        context: context,
+        builder: (c) => const Center(child: CircularProgressIndicator()));
+
+    // Fetch Data
+    var onlineSnap = await FirebaseFirestore.instance
+        .collection('driver_locations')
+        .where('is_online', isEqualTo: true)
+        .get();
+    var rideSnap = await FirebaseFirestore.instance
+        .collection('ride_requests')
+        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .where('timestamp', isLessThan: endOfDay)
+        .get();
+
+    int onlineCount = onlineSnap.docs.length;
+    int totalRides = rideSnap.docs.length;
+    int completedCount =
+        rideSnap.docs.where((d) => d['status'] == 'completed').length;
+    double revenue = completedCount * 5.0;
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("${DateFormat('yyyy-MM-dd').format(pickedDate)} ሪፖርት",
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            ListTile(
+                title: const Text("በስራ ላይ ያሉ"), trailing: Text("$onlineCount")),
+            ListTile(
+                title: const Text("የተጠናቀቁ ጉዞዎች"),
+                trailing: Text("$completedCount")),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () => _generateDailyReport(
+                  onlineCount, totalRides, completedCount, revenue, pickedDate),
+              child: const Text("PDF አውርድ"),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Generate PDF Report
+  Future<void> _generateDailyReport(int online, int total, int completed,
+      double revenue, DateTime date) async {
+    final pdf = pw.Document();
+
+    pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return pw.Column(children: [
+            pw.Header(
+                level: 0, child: pw.Text("Bahir Dar Bajaj - Traffic Report")),
+            pw.SizedBox(height: 20),
+            pw.Text(
+                "Report For Date: ${DateFormat('EEEE, MMM dd, yyyy').format(date)}"),
+            pw.Divider(),
+            pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("Online Drivers:"),
+                  pw.Text("$online"),
+                ]),
+            pw.SizedBox(height: 10),
+            pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("Total Requests:"),
+                  pw.Text("$total"),
+                ]),
+            pw.SizedBox(height: 10),
+            pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("Completed Trips:"),
+                  pw.Text("$completed"),
+                ]),
+            pw.SizedBox(height: 10),
+            pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("Total Revenue (Est):"),
+                  pw.Text("$revenue ETB"),
+                ]),
+            pw.Spacer(),
+            pw.Divider(),
+            pw.Center(child: pw.Text("Generated via Tana SuperApp Admin")),
+          ]);
+        }));
+
+    await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+  }
+
+  // ✅ MAIN BUILD METHOD (UPDATED)
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -157,63 +284,74 @@ class _TrafficMapViewState extends State<TrafficMapView> {
         children: [
           FlutterMap(
             mapController: _adminMapController,
-            options: const MapOptions(
-                initialCenter: LatLng(11.5742, 37.3614), initialZoom: 14.5),
+            options: MapOptions(
+              initialCenter: const LatLng(11.5742, 37.3614),
+              initialZoom: 14.5,
+              // ✅ UPDATE 2: Track zoom level to toggle text visibility
+              onPositionChanged: (position, hasGesture) {
+                setState(() {
+                  _currentZoom = position.zoom;
+                });
+              },
+            ),
             children: [
               TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.tana.superapp',
+              ),
 
-              // 📍 ቋሚ ምልክቶች (ሆስፒታሎች፣ ትምህርት ቤቶች...)
+              // 📍 1. Places Layer (Names show only when zoomed in)
               MarkerLayer(
                 markers: masterDirectory.map((loc) {
+                  // Only show names when zoomed in close (> 15.5)
+                  bool showText = _currentZoom > 15.5; 
                   return Marker(
                     point: loc.coordinates,
-                    width: 100,
-                    height: 70,
-                    child: Builder(
-                      builder: (context) {
-                        final double currentZoom = MapCamera.of(context).zoom;
-                        if (currentZoom < 14.0) return const SizedBox.shrink();
-                        return Column(
-                          children: [
-                            Icon(_getMarkerIcon(loc.category),
-                                color: _getMarkerColor(loc.category), size: 22),
-                            Text(loc.nameAmh,
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    backgroundColor:
-                                        Colors.white.withOpacity(0.8)),
-                                textAlign: TextAlign.center),
-                          ],
-                        );
-                      },
+                    width: showText ? 100 : 30,
+                    height: 65,
+                    child: Column(
+                      children: [
+                        Icon(_getMarkerIcon(loc.category),
+                            color: _getMarkerColor(loc.category), size: 22),
+                        // Only show text container if showText is true
+                        if (showText)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.8),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              loc.nameAmh,
+                              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                      ],
                     ),
                   );
                 }).toList(),
               ),
 
-              // 📡 የቀጥታ ባጃጅ ምልክቶች
+              // 📡 2. Live Bajaj Layer (Fixed Logic)
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('driver_locations')
                     .where('is_online', isEqualTo: true)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const SizedBox();
+                  if (!snapshot.hasData) return const SizedBox.shrink();
                   return MarkerLayer(
                     markers: snapshot.data!.docs.map((doc) {
                       var data = doc.data() as Map<String, dynamic>;
                       double speed = (data['speed'] ?? 0).toDouble();
                       bool isOnTrip = data['isOnTrip'] ?? false;
-                      Color statusColor = isOnTrip
-                          ? Colors.blue
-                          : (speed < 1 ? Colors.amber : Colors.teal);
+                      Color statusColor = isOnTrip ? Colors.blue : (speed < 1 ? Colors.amber : Colors.teal);
 
                       return Marker(
-                        point: LatLng((data['lat'] ?? 11.5742).toDouble(),
-                            (data['lng'] ?? 37.3614).toDouble()),
+                        // ✅ UPDATE 3: ValueKey forces the marker to move when coordinates change
+                        key: ValueKey(doc.id), 
+                        point: LatLng((data['lat'] ?? 11.5742).toDouble(), (data['lng'] ?? 37.3614).toDouble()),
                         width: 60,
                         height: 60,
                         child: GestureDetector(
@@ -221,21 +359,19 @@ class _TrafficMapViewState extends State<TrafficMapView> {
                           child: Column(
                             children: [
                               Icon(
-                                  isOnTrip
-                                      ? Icons.local_taxi
-                                      : (speed < 1
-                                          ? Icons.pause_circle
-                                          : Icons.minor_crash),
-                                  color: statusColor,
-                                  size: 30),
+                                isOnTrip ? Icons.local_taxi : (speed < 1 ? Icons.pause_circle : Icons.minor_crash),
+                                color: statusColor,
+                                size: 30,
+                              ),
                               Text(
-                                  isOnTrip
-                                      ? "ጉዞ ላይ"
-                                      : (speed < 1 ? "ቆሟል" : "ዝግጁ"),
-                                  style: TextStyle(
-                                      color: statusColor,
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold)),
+                                isOnTrip ? "ጉዞ ላይ" : (speed < 1 ? "ቆሟል" : "ዝግጁ"),
+                                style: TextStyle(
+                                  color: statusColor, 
+                                  fontSize: 8, 
+                                  fontWeight: FontWeight.bold, 
+                                  backgroundColor: Colors.white70
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -247,8 +383,11 @@ class _TrafficMapViewState extends State<TrafficMapView> {
             ],
           ),
 
+          // --- Overlays & Buttons ---
           _buildSOSOverlay(),
           Positioned(top: 15, left: 15, child: _buildMapStatsOverlay()),
+
+          // Driver List Button
           Positioned(
             top: 20,
             right: 20,
@@ -260,7 +399,19 @@ class _TrafficMapViewState extends State<TrafficMapView> {
             ),
           ),
 
-          // 🚨 የ SOS ድንገተኛ አደጋ መከታተያ
+          // Report Button
+          Positioned(
+            top: 80,
+            right: 20,
+            child: FloatingActionButton(
+              mini: true,
+              backgroundColor: Colors.orange,
+              onPressed: _showReportDialog,
+              child: const Icon(Icons.analytics, color: Colors.white),
+            ),
+          ),
+
+          // 🚨 SOS Alert Logic
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('sos_alerts')
@@ -346,7 +497,7 @@ class _TrafficMapViewState extends State<TrafficMapView> {
     );
   }
 
-  // --- ረዳት ክፍሎች (UI Helpers) ---
+  // --- Helper Widgets ---
 
   Widget _buildMapStatsOverlay() {
     return StreamBuilder<QuerySnapshot>(

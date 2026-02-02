@@ -25,7 +25,8 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
   String _userName = "Passenger";
 
   // --- MAP STATE ---
-  final MapController _mapController = MapController(); // Added MapController
+  final MapController _mapController = MapController();
+  double _currentZoom = 15.0; // ዙም ለመቆጣጠር
 
   // --- APP STATE ---
   String tripStatus = "idle";
@@ -128,20 +129,14 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         });
       }
     } catch (e) {
-      // ኢንተርኔት ሲጠፋ ወይም OSRM ስራ ሲያቆም ይህ ይባላል
       double distanceInMeters = Geolocator.distanceBetween(startPos.latitude,
           startPos.longitude, destination.latitude, destination.longitude);
-
       double km = distanceInMeters / 1000;
-
       setState(() {
         _calculatedKm = km;
-        _estimatedPrice = (50 + (km * 15)).round(); // መደበኛ ቤዝ ዋጋ 50 + በኪሜ 15 ብር
+        _estimatedPrice = (50 + (km * 15)).round();
         _isCalculatingPrice = false;
       });
-
-      // ለተጠቃሚው ማሳሰቢያ መስጠት ትችላለህ
-      debugPrint("ኢንተርኔት ስለሌለ በግምት ተሰልቷል: $e");
     }
   }
 
@@ -158,8 +153,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       if (mounted) {
         setState(() =>
             myRealPosition = LatLng(position.latitude, position.longitude));
-        // Move map to new user location
-        _mapController.move(myRealPosition!, 15.0);
       }
     });
   }
@@ -201,10 +194,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
         String status = data['status'] ?? 'searching';
         if (status == 'completed' && tripStatus != "finished") {
           setState(() => tripStatus = "finished");
-          if (mounted) {
-            // Added mounted check
-            _showRatingDialog(rideId);
-          }
+          if (mounted) _showRatingDialog(rideId);
         } else if (mounted) {
           setState(() {
             tripStatus = status;
@@ -222,7 +212,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       setState(() => _filteredPlaces = []);
       return;
     }
-
     List<Map<String, dynamic>> localMatches = masterDirectory
         .where((p) =>
             p.name.toLowerCase().contains(v.toLowerCase()) ||
@@ -234,13 +223,11 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               "sub": "Local Place"
             })
         .toList();
-
     setState(() => _filteredPlaces = localMatches);
-
     if (v.length > 3) {
-      final url = Uri.parse(
-          "https://nominatim.openstreetmap.org/search?q=$v, Bahir Dar&format=json&limit=3");
       try {
+        final url = Uri.parse(
+            "https://nominatim.openstreetmap.org/search?q=$v, Bahir Dar&format=json&limit=3");
         final response =
             await http.get(url, headers: {'User-Agent': 'BahirDarSuperApp'});
         if (response.statusCode == 200) {
@@ -253,7 +240,6 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               "sub": "Map Result"
             };
           }).toList();
-
           setState(() {
             _filteredPlaces = [...localMatches, ...webMatches];
           });
@@ -264,6 +250,7 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     }
   }
 
+  // ==================== BUILD METHOD ====================
   @override
   Widget build(BuildContext context) {
     final LatLng activeCenter = myRealPosition ?? bahirDarCenter;
@@ -274,10 +261,15 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
       body: Stack(
         children: [
           FlutterMap(
-            mapController: _mapController, // Added controller
+            mapController: _mapController,
             options: MapOptions(
-              initialCenter: activeCenter, // Replaced camera with initialCenter
-              initialZoom: 15, // Replaced camera with initialZoom
+              initialCenter: activeCenter,
+              initialZoom: 15,
+              onPositionChanged: (position, hasGesture) {
+                setState(() {
+                  _currentZoom = position.zoom;
+                });
+              },
             ),
             children: [
               TileLayer(
@@ -286,49 +278,71 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
               ),
               MarkerLayer(
                 markers: [
+                  // 1. የእኔ ቦታ (ሰማያዊ)
                   Marker(
                     point: activeCenter,
                     child: const Icon(Icons.person_pin_circle,
                         color: Colors.blue, size: 40),
                   ),
+                  // 2. መድረሻ ቦታ (ቀይ)
                   if (_selectedDestination != null)
                     Marker(
                       point: _selectedDestination!,
                       child: const Icon(Icons.location_on,
                           color: Colors.red, size: 40),
                     ),
+                  // 3. ባጃጅ (አረንጓዴ)
                   if (tripStatus != "idle")
                     Marker(
                       point: bajajPosition,
                       child: const Icon(Icons.local_taxi,
                           color: Colors.teal, size: 35),
                     ),
+
+                  // 4. የባህር ዳር ቦታዎች (ስማቸው ቀረብ ሲሉ ብቻ የሚመጣ)
                   ...masterDirectory.map((loc) {
+                    bool showText = _currentZoom > 15.2;
+
                     return Marker(
                       point: loc.coordinates,
-                      width: 120,
-                      height: 80,
+                      width: showText ? 120 : 30,
+                      height: 70,
                       child: Column(
                         children: [
                           Icon(getMarkerIcon(loc.category),
-                              color: getMarkerColor(loc.category), size: 25),
-                          Text(
-                            loc.nameAmh,
-                            style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                backgroundColor: Colors.white.withOpacity(
-                                    0.7)), // Fixed deprecated color
-                            textAlign: TextAlign.center,
-                          ),
+                              color: getMarkerColor(loc.category), size: 22),
+                          if (showText)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.85),
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: const [
+                                  BoxShadow(
+                                      color: Colors.black12, blurRadius: 2)
+                                ],
+                              ),
+                              child: Text(
+                                loc.nameAmh,
+                                style: const TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                         ],
                       ),
                     );
-                  }),
+                  }).toList(),
                 ],
               ),
             ],
           ),
+
+          // Menu Button
           Positioned(
             top: 50,
             left: 20,
@@ -341,18 +355,20 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
                 ),
                 child: IconButton(
                   icon: const Icon(Icons.menu, color: Colors.teal, size: 30),
-                  onPressed: () {
-                    Scaffold.of(context).openDrawer();
-                  },
+                  onPressed: () => Scaffold.of(context).openDrawer(),
                 ),
               ),
             ),
           ),
+
+          // Request Sheet
           tripStatus == "idle" ? _buildRequestSheet() : _buildLiveRideSheet(),
         ],
       ),
     );
   }
+
+  // --- UI HELPER WIDGETS ---
 
   Widget _buildRequestSheet() {
     return DraggableScrollableSheet(
@@ -518,19 +534,12 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
           actions: [
             TextButton(
                 onPressed: () async {
-                  // No need to check mounted here, as this is not an async gap
                   Navigator.pop(context);
-
-                  // Perform the async operation *after* the pop
                   await FirebaseFirestore.instance
                       .collection('ride_requests')
                       .doc(rideId)
                       .update({'rating': selectedStars});
-
-                  // Now, if you need to update the state, check mounted again
-                  if (mounted) {
-                    setState(() => tripStatus = "idle");
-                  }
+                  if (mounted) setState(() => tripStatus = "idle");
                 },
                 child: const Text("SUBMIT"))
           ],
@@ -545,10 +554,11 @@ class _BajajPassengerPageState extends State<BajajPassengerPage> {
     rideSubscription?.cancel();
     _phoneController.dispose();
     _destinationController.dispose();
-    _mapController.dispose(); // Dispose the controller
+    _mapController.dispose();
     super.dispose();
   }
 
+  // --- ICONS & COLORS Helpers ---
   IconData getMarkerIcon(String category) {
     String cat = category.toLowerCase().trim();
     if (cat.contains("school") ||

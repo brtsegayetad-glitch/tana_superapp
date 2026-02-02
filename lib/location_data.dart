@@ -78,13 +78,8 @@ final List<BahirDarLocation> masterDirectory = [
   BahirDarLocation(
       name: "Bahir Dar Health Science College",
       nameAmh: "ባሕር ዳር ጤና ሳይንስ ኮሌጅ",
-      coordinates: const LatLng(11.5785, 37.3920),
+      coordinates: const LatLng(11.607942, 37.367272),
       category: "College"),
-  BahirDarLocation(
-      name: "EiTEX (Textile Institute)",
-      nameAmh: "ኢትዮጵያ ጨርቃጨርቅና ፋሽን ቴክኖሎጂ",
-      coordinates: const LatLng(11.5855, 37.4060),
-      category: "University"),
 
 // --- CHURCHES & RELIGIOUS SITES ---
   BahirDarLocation(

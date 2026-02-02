@@ -70,7 +70,6 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
   Future<void> _initDriverLogic() async {
     await _requestPermissions();
     _listenForAdminReminders();
-    _startLiveLocationUpdates();
   }
 
   Future<void> _requestPermissions() async {
@@ -86,35 +85,36 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
     _driverPositionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: 10, // Keeps your 10-meter requirement
       ),
     ).listen((Position position) {
-      if (_isOnline) {
-        FirebaseFirestore.instance
-            .collection('driver_locations')
-            .doc(_currentDriverId)
-            .set({
-          'driver_id': _currentDriverId,
-          'driverName': _driverName,
-          'plateNumber': _plateNumber,
-          'phoneNumber': _currentUserPhone, // ✅ አሁን ትክክል ነው
-          'photoUrl': _driverPhotoUrl,
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'is_online': _isOnline,
-          'status': activeTripId != null ? 'busy' : 'available',
-          'last_updated': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      // 💡 Notice: I removed "if (_isOnline)" from here to ensure it writes to DB
+      FirebaseFirestore.instance
+          .collection('driver_locations')
+          .doc(_currentDriverId)
+          .set({
+        'driver_id': _currentDriverId,
+        'driverName': _driverName,
+        'plateNumber': _plateNumber,
+        'phoneNumber': _currentUserPhone,
+        'photoUrl': _driverPhotoUrl,
+        'speed': position.speed * 3.6,
+        'isOnTrip': activeTripId != null,
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'is_online': true, // Since this stream is only running when online
+        'status': activeTripId != null ? 'busy' : 'available',
+        'last_updated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-        if (activeTripId != null) {
-          FirebaseFirestore.instance
-              .collection('ride_requests')
-              .doc(activeTripId!)
-              .update({
-            'driver_lat': position.latitude,
-            'driver_lng': position.longitude,
-          });
-        }
+      if (activeTripId != null) {
+        FirebaseFirestore.instance
+            .collection('ride_requests')
+            .doc(activeTripId!)
+            .update({
+          'driver_lat': position.latitude,
+          'driver_lng': position.longitude,
+        });
       }
     });
   }
@@ -188,14 +188,14 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
 
   void _triggerAlert() async {
     try {
-      // 🔔 ለ 6.0 ቨርዥን የተስተካከለ
-      await _audioPlayer
-          .play(UrlSource('https://www.soundjay.com/buttons/beep-01a.mp3'));
+      // 🔔 ይህ አዲሱ ቀለል ያለ ድምፅ (Notification Sound) ነው
+      await _audioPlayer.play(UrlSource(
+          'https://raw.githubusercontent.com/pro-ali-king/audio_assets/main/notification_light.mp3'));
 
-      // 📳 ስልኩ እንዲርገበገብ
+      // 📳 ንዝረቱን (Vibration) መቀነስ ከፈለግህ ደግሞ እዚህ ጋር duration መቀየር ትችላለህ
       bool? hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
-        Vibration.vibrate(duration: 800);
+        Vibration.vibrate(duration: 400); // ከ 800 ወደ 400 ቀንሰነዋል
       }
     } catch (e) {
       debugPrint("Alert error: $e");
@@ -341,6 +341,15 @@ class _BajajDriverPageState extends State<BajajDriverPage> {
               value: _isOnline,
               onChanged: (v) async {
                 setState(() => _isOnline = v);
+
+                if (v == true) {
+                  // 💡 Start the GPS stream immediately when switching ON
+                  _startLiveLocationUpdates();
+                } else {
+                  // 💡 Stop the GPS stream immediately when switching OFF
+                  _driverPositionStream?.cancel();
+                }
+
                 try {
                   await FirebaseFirestore.instance
                       .collection('driver_locations')
