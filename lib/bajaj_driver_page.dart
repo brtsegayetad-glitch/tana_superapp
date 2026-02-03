@@ -248,7 +248,7 @@ class _BajajDriverPageState extends State<BajajDriverPage>
     try {
       await _audioPlayer.play(UrlSource(
           'https://raw.githubusercontent.com/pro-ali-king/audio_assets/main/notification_light.mp3'));
-      if (await Vibration.hasVibrator() ?? true) {
+     if (await Vibration.hasVibrator() == true) {
         Vibration.vibrate(duration: 400);
       }
     } catch (e) {
