@@ -107,39 +107,34 @@ class _BajajDriverPageState extends State<BajajDriverPage>
     }
   }
 
-  // 🔥 ዋናው ለውጥ እዚህ ጋር ነው (GPS Fix)
+  // 🔥 ይህ አዲሱ እና የተስተካከለው የጂፒኤስ ኮድ ነው
   void _startLiveLocationUpdates() {
-    // ቀድሞ እየሰራ ካለ እናቁመው
     _stopLocationUpdates();
 
-    // ለ Android ስልክ ባትሪ ሲቆጥብም (Sleep Mode) እንዲሰራ የሚያደርግ Setting
     LocationSettings locationSettings;
 
     if (Theme.of(context).platform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // በየ 10 ሜትሩ
-        forceLocationManager: true,
-        intervalDuration: const Duration(seconds: 5), // በየ 5 ሰከንዱ ሞክር
-        // 👇 ይህ በጣም ወሳኝ ነው፡ ስልኩ ሲዘጋ Notification ያሳያል፣ ኦፕሬቲንግ ሲስተሙ አፑን እንዳይዘጋው ያደርጋል
+        distanceFilter: 0, // 🔥 0 መሆኑ ስልኩ ባይንቀሳቀስም ዳታ እንዲልክ ያደርገዋል
+        forceLocationManager: true, // 🔥 በጣም አስፈላጊው መስመር! Sensor እንዳይዘጋ ያደርጋል
+        intervalDuration: const Duration(seconds: 5),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "Tana Driver Active",
-          notificationText: "Your location is being shared for rides.",
-          enableWakeLock: true,
+          notificationText: "Real-time location is being shared for rides.",
+          enableWakeLock: true, // 🔥 ስልኩን ቀስቅሶ እንዲያቆይ ይረዳል
         ),
       );
     } else {
       locationSettings = const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: 0,
       );
     }
 
     _driverPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings)
             .listen((Position position) async {
-      // 💡 Internet Connection Check (Simple check)
-      // ቦታው ከተገኘ በኋላ ኢንተርኔት ከሌለ ዝም ብሎ ይሞክራል፣ ነገር ግን Error እንዳይፈጥር Try/Catch እንጠቀማለን
       try {
         await FirebaseFirestore.instance
             .collection('driver_locations')
@@ -159,7 +154,6 @@ class _BajajDriverPageState extends State<BajajDriverPage>
           'last_updated': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        // አክቲቭ ትሪፕ ካለ እሱንም እናዘምነዋለን
         if (activeTripId != null) {
           await FirebaseFirestore.instance
               .collection('ride_requests')
@@ -170,9 +164,7 @@ class _BajajDriverPageState extends State<BajajDriverPage>
           });
         }
       } catch (e) {
-        // ኢንተርኔት ከጠፋ እዚህ ጋር ይገባል
-        debugPrint("Connection failed while sending GPS: $e");
-        // ከተፈለገ እዚህ ጋር ለተጠቃሚው "No Internet" ማለት ይቻላል
+        debugPrint("Connection failed: $e");
       }
     });
   }
@@ -181,7 +173,6 @@ class _BajajDriverPageState extends State<BajajDriverPage>
     _driverPositionStream?.cancel();
     _driverPositionStream = null;
   }
-
   // --- ሌሎች አስፈላጊ ፋንክሽኖች ---
 
   Future<void> _triggerSOS() async {
@@ -248,7 +239,7 @@ class _BajajDriverPageState extends State<BajajDriverPage>
     try {
       await _audioPlayer.play(UrlSource(
           'https://raw.githubusercontent.com/pro-ali-king/audio_assets/main/notification_light.mp3'));
-     if (await Vibration.hasVibrator() == true) {
+      if (await Vibration.hasVibrator() == true) {
         Vibration.vibrate(duration: 400);
       }
     } catch (e) {
@@ -616,8 +607,45 @@ class _BajajDriverPageState extends State<BajajDriverPage>
   }
 
   Widget _buildWalletScreen() {
-    // (Existing Wallet Code)
-    return const Center(child: Text("Wallet Screen Placeholder"));
-    // አንተ የላክከው Wallet ኮድ እንዳለ ይሁን፣ እዚህ ጋር ቦታ ለመቆጠብ ነው ያሳጠርኩት
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(_currentDriverId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        var userData = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+        double balance = (userData['total_debt'] ?? 0).toDouble();
+
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              Card(
+                color: Colors.teal[50],
+                child: ListTile(
+                  leading: const Icon(Icons.account_balance_wallet,
+                      color: Colors.teal, size: 40),
+                  title: const Text("ያለብዎት ዕዳ (Debt)"),
+                  subtitle: Text("${balance.toStringAsFixed(2)} ETB",
+                      style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text("ዕዳዎ 100 ብር ሲሞላ አካውንትዎ በጊዜያዊነት ይዘጋል። እባክዎ በቴሌብር ይክፈሉ።",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        );
+      },
+    );
   }
-}
+} // 👈 ይህ ቅንፍ የ _BajajDriverPageState ክላስን ይዘጋል
+
+
+
