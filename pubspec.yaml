@@ -22,7 +22,10 @@ dependencies:
   # Maps & GPS
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
-  geolocator: ^14.0.2  # Added this for real GPS
+  geolocator: ^13.0.0  # 💡 I recommend 13.0.0 for stability, but 14 is okay too.
+  
+  # 🔥 REQUIRED NEW PACKAGE
+  permission_handler: ^11.3.1
 
   # State & Logic
   provider: ^6.1.2
@@ -44,7 +47,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
+  flutter_lints: ^5.0.0 # Adjusted to be safe
   change_app_package_name: ^1.5.0
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.0
