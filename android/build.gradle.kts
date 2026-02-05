@@ -15,7 +15,7 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// --- ADDED FIX FOR ANDROID GRADLE PLUGIN VERSION ERRORS ---
+// This section fixes conflicts with older Flutter plugins
 subprojects {
     configurations.all {
         resolutionStrategy.eachDependency {
@@ -23,9 +23,6 @@ subprojects {
                 useVersion("1.8.0")
             }
             if (requested.group == "androidx.core" && requested.name == "core-ktx") {
-                useVersion("1.13.1")
-            }
-            if (requested.group == "androidx.core" && requested.name == "core") {
                 useVersion("1.13.1")
             }
         }

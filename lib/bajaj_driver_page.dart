@@ -102,6 +102,7 @@ class _BajajDriverPageState extends State<BajajDriverPage>
       // Usually, you cannot request Always directly on Android 11+,
       // you must direct them to settings or request specifically.
       // But for now, try to get the highest available.
+      permission = await Geolocator.requestPermission();
     }
 
     if (permission == LocationPermission.deniedForever) {
@@ -117,9 +118,20 @@ class _BajajDriverPageState extends State<BajajDriverPage>
   void _startLiveLocationUpdates() {
     _stopLocationUpdates();
 
-    final locationSettings = LocationSettings(
+    // 🔥 REPLACED: Using AndroidSettings instead of LocationSettings
+    // to unlock the enableWakeLock feature.
+    final locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
+      // 🚀 THE MAGIC SWITCH:
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationTitle: "Tana Driver Online",
+        notificationText: "Tracking your location for ride requests...",
+        notificationIcon:
+            AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+        enableWakeLock: true, // 💡 Keeps CPU awake when screen is off
+        setOngoing: true, // Makes notification non-dismissible
+      ),
     );
 
     _driverPositionStream =
